@@ -2,3 +2,6 @@ node_modules
 dist
 .env
 yolov8n.pt
+*.pt
+models/*.pt
+runs/detect/*
