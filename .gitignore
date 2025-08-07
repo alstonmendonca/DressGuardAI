@@ -5,3 +5,6 @@ yolov8n.pt
 *.pt
 models/*.pt
 runs/detect/*
+
+*.pyc
+utils/__pycache__

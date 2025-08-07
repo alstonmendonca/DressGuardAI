@@ -12,7 +12,7 @@ function App() {
     if (!file) return;
 
     const imageBlobURL = URL.createObjectURL(file);
-    setImageURL(imageBlobURL); // Show the image
+    setImageURL(imageBlobURL);
 
     const formData = new FormData();
     formData.append("file", file);
@@ -27,41 +27,75 @@ function App() {
   };
 
   const drawBoxes = () => {
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext("2d");
-    const img = imageRef.current;
+  const canvas = canvasRef.current;
+  const ctx = canvas.getContext("2d");
+  const img = imageRef.current;
 
-    if (!canvas || !ctx || !img) return;
+  if (!canvas || !ctx || !img) return;
 
-    canvas.width = img.width;
-    canvas.height = img.height;
+  // Match canvas size to displayed image
+  const displayWidth = img.clientWidth;
+  const displayHeight = img.clientHeight;
+  canvas.width = displayWidth;
+  canvas.height = displayHeight;
 
-    // Clear canvas
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+  // Compute scaling factor
+  const scaleX = displayWidth / img.naturalWidth;
+  const scaleY = displayHeight / img.naturalHeight;
 
-    // Set box style
-    ctx.lineWidth = 2;
-    ctx.font = "16px sans-serif";
-    ctx.strokeStyle = "red";
-    ctx.fillStyle = "red";
+  // Clear canvas
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    detections.forEach((det) => {
-      const [x1, y1, x2, y2] = det.bbox;
-      ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
-      ctx.fillText(`${det.class} (${Math.round(det.confidence * 100)}%)`, x1, y1 - 5);
-    });
-  };
+  ctx.lineWidth = 2;
+  ctx.font = "16px monospace";
+  ctx.strokeStyle = "#00FF00";
+  ctx.fillStyle = "#00FF00";
+
+  detections.forEach((det) => {
+    const [x1, y1, x2, y2] = det.bbox;
+
+    // Scale bbox to match display size
+    const sx1 = x1 * scaleX;
+    const sy1 = y1 * scaleY;
+    const sx2 = x2 * scaleX;
+    const sy2 = y2 * scaleY;
+
+    const width = sx2 - sx1;
+    const height = sy2 - sy1;
+
+    ctx.strokeRect(sx1, sy1, width, height);
+    ctx.fillText(
+      `${det.class} (${Math.round(det.confidence * 100)}%)`,
+      sx1,
+      sy1 - 8
+    );
+  });
+
+  // Sniper crosshairs
+  ctx.strokeStyle = "#00FF00";
+  ctx.beginPath();
+  ctx.moveTo(canvas.width / 2 - 20, canvas.height / 2);
+  ctx.lineTo(canvas.width / 2 + 20, canvas.height / 2);
+  ctx.moveTo(canvas.width / 2, canvas.height / 2 - 20);
+  ctx.lineTo(canvas.width / 2, canvas.height / 2 + 20);
+  ctx.stroke();
+};
+
 
   return (
-    <div className="p-4 max-w-3xl mx-auto text-center">
-      <h1 className="text-2xl font-bold mb-4">DressGuard AI Detection</h1>
+    <div className="min-h-screen bg-black text-green-400 font-mono flex flex-col items-center p-6">
+      <h1 className="text-3xl mb-6 border-b-2 pb-2 border-green-400 tracking-widest uppercase">
+        DressGuard AI - Surveillance Mode
+      </h1>
+
       <input
         type="file"
         accept="image/*"
         onChange={handleFileChange}
-        className="mb-4"
+        className="mb-6 bg-green-900 text-green-300 border border-green-400 p-2 rounded hover:bg-green-800 transition-all"
       />
-      <div className="relative inline-block">
+
+      <div className="relative border-4 border-green-500 shadow-lg rounded overflow-hidden">
         {imageURL && (
           <>
             <img
@@ -73,12 +107,25 @@ function App() {
             />
             <canvas
               ref={canvasRef}
-              className="absolute top-0 left-0"
-              style={{ pointerEvents: 'none' }}
+              className="absolute top-0 left-0 pointer-events-none"
             />
           </>
         )}
       </div>
+
+      {detections.length > 0 && (
+        <div className="mt-6 bg-green-950 p-4 rounded shadow-lg max-w-xl w-full text-left">
+          <h2 className="text-xl mb-2 border-b border-green-400">Detected Items:</h2>
+          <ul className="list-disc pl-6">
+            {detections.map((det, index) => (
+              <li key={index}>
+                <span className="font-bold">{det.class}</span> —{" "}
+                {(det.confidence * 100).toFixed(2)}% confidence
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }
