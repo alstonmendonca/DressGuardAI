@@ -33,17 +33,16 @@ function App() {
 
   if (!canvas || !ctx || !img) return;
 
-  // Match canvas size to displayed image
+  // Get actual displayed size
   const displayWidth = img.clientWidth;
   const displayHeight = img.clientHeight;
   canvas.width = displayWidth;
   canvas.height = displayHeight;
 
-  // Compute scaling factor
+  // Scale factors from original image → displayed size
   const scaleX = displayWidth / img.naturalWidth;
   const scaleY = displayHeight / img.naturalHeight;
 
-  // Clear canvas
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
   ctx.lineWidth = 2;
@@ -54,24 +53,21 @@ function App() {
   detections.forEach((det) => {
     const [x1, y1, x2, y2] = det.bbox;
 
-    // Scale bbox to match display size
+    // Scale only if needed
     const sx1 = x1 * scaleX;
     const sy1 = y1 * scaleY;
     const sx2 = x2 * scaleX;
     const sy2 = y2 * scaleY;
 
-    const width = sx2 - sx1;
-    const height = sy2 - sy1;
-
-    ctx.strokeRect(sx1, sy1, width, height);
+    ctx.strokeRect(sx1, sy1, sx2 - sx1, sy2 - sy1);
     ctx.fillText(
       `${det.class} (${Math.round(det.confidence * 100)}%)`,
       sx1,
-      sy1 - 8
+      sy1 - 5
     );
   });
 
-  // Sniper crosshairs
+  // Sniper crosshair
   ctx.strokeStyle = "#00FF00";
   ctx.beginPath();
   ctx.moveTo(canvas.width / 2 - 20, canvas.height / 2);
@@ -80,6 +76,7 @@ function App() {
   ctx.lineTo(canvas.width / 2, canvas.height / 2 + 20);
   ctx.stroke();
 };
+
 
 
   return (
@@ -115,7 +112,7 @@ function App() {
 
       {detections.length > 0 && (
         <div className="mt-6 bg-green-950 p-4 rounded shadow-lg max-w-xl w-full text-left">
-          <h2 className="text-xl mb-2 border-b border-green-400">Detected Items:</h2>
+          <h2 className="text-xl mb-2 border-b border-green-400 rounded-2xl">Detected Items:</h2>
           <ul className="list-disc pl-6">
             {detections.map((det, index) => (
               <li key={index}>
