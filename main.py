@@ -23,12 +23,14 @@ async def detect_dress(file: UploadFile = File(...)):
     image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
     detected_clothes = detector.detect(image)
-    print("Reevan the output is: \n")
-    print(detected_clothes)
+    h, w = image.shape[:2]  # original dimensions
+
     compliant, non_compliant_items = is_compliant(detected_clothes)
 
     return {
         "clothes_detected": detected_clothes,
+        "image_width": w,
+        "image_height": h,
         "compliant": compliant,
         "non_compliant_items": non_compliant_items
     }
