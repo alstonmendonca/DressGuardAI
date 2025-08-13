@@ -204,23 +204,23 @@ function App() {
           )}
         </div>
 
-        {/* === PANEL 4: Camera Controls (Bottom Left) === */}
+        {/* === PANEL 4: Allows to choose from different camera feeds*/}
         <div className="row-start-2 bg-green-950 border border-green-500 p-4 rounded flex flex-col gap-3 h-full overflow-y-auto">
           <h3 className="text-center font-bold text-green-300 mb-4">Camera Controls</h3>
           <button className="bg-black border border-green-600 py-2 hover:bg-green-900 transition text-xs">
-            ▲ Zoom In
+            Webcam
           </button>
           <button className="bg-black border border-green-600 py-2 hover:bg-green-900 transition text-xs">
-            ▼ Zoom Out
+            Camera-1
           </button>
           <button className="bg-black border border-green-600 py-2 hover:bg-green-900 transition text-xs">
-            ◀ Pan Left
+            Camera-2
           </button>
           <button className="bg-black border border-green-600 py-2 hover:bg-green-900 transition text-xs">
-            ▶ Pan Right
+            Camera-3
           </button>
           <button className="bg-black border border-green-600 py-2 hover:bg-green-900 transition text-xs">
-            ■ Center View
+            Upload Image
           </button>
         </div>
 
