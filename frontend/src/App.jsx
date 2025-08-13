@@ -144,12 +144,12 @@ function App() {
   }, [imageURL, detections]); // Re-run when image or detections change
 
   return (
-    <div className="min-h-screen bg-black text-green-400 font-mono flex flex-col items-center p-6">
-      <h1 className="text-3xl mb-6 border-b-2 pb-2 border-green-400 tracking-widest uppercase">
-        DressGuard AI - Surveillance Mode
+    <div className="p-0">
+      <h1 className="bg-black text-green-400 font-mono text-3xl mb-6 border-b-2 pb-2 border-green-400 tracking-widest uppercase w-auto">
+        DressGuard AI
       </h1>
 
-      {/* File input: triggers upload and processing */}
+      {/* File input */}
       <input
         type="file"
         accept="image/*"
@@ -157,44 +157,109 @@ function App() {
         className="mb-6 bg-green-900 text-green-300 border border-green-400 p-2 rounded hover:bg-green-800 transition-all"
       />
 
-      {/* Container for image + canvas overlay */}
-      <div className="relative border-4 border-green-500 shadow-lg rounded overflow-hidden">
-        {imageURL && (
-          <>
-            {/* Image element - ref is used to get rendered size */}
-            <img
-              src={imageURL}
-              alt="Uploaded"
-              ref={imageRef}
-              onLoad={() => {
-                console.log("Image finished loading");
-                if (detections.length > 0) drawBoxes(); // Draw if detections are ready
-              }}
-              className="max-w-full" // Ensures responsive width
-            />
-            {/* Transparent canvas for drawing boxes on top of image */}
-            <canvas
-              ref={canvasRef}
-              className="absolute top-0 left-0 pointer-events-none" // Prevent interaction
-            />
-          </>
-        )}
-      </div>
+      {/* Main Grid: 3 columns */}
+      <div className="min-h-screen bg-black text-green-400 font-mono grid grid-cols-3 gap-2">
 
-      {/* Display list of detected items */}
-      {detections.length > 0 && (
-        <div className="mt-6 bg-green-950 p-4 rounded shadow-lg max-w-xl w-full text-left">
-          <h2 className="text-xl mb-2 border-b border-green-400">Detected Items:</h2>
-          <ul className="list-disc pl-6">
-            {detections.map((det, index) => (
-              <li key={index}>
-                <span className="font-bold">{det.class}</span> —{" "}
-                {(det.confidence * 100).toFixed(2)}% confidence
-              </li>
-            ))}
-          </ul>
+        {/* === MAIN FEED (col-span-2) === */}
+        <div className="col-span-2 relative border-4 border-green-500 shadow-lg rounded overflow-hidden">
+          {imageURL ? (
+            <>
+              <img
+                src={imageURL}
+                alt="Uploaded"
+                ref={imageRef}
+                onLoad={() => {
+                  if (detections.length > 0) drawBoxes();
+                }}
+                className="w-full h-auto"
+              />
+              <canvas
+                ref={canvasRef}
+                className="absolute top-0 left-0 pointer-events-none"
+              />
+            </>
+          ) : (
+            <div className="w-full h-64 bg-black flex items-center justify-center">
+              <span className="text-green-600">Upload an image to begin</span>
+            </div>
+          )}
         </div>
-      )}
+
+        {/* === DETECTION LIST (right column, top) === */}
+        {detections.length > 0 && (
+          <div className="bg-green-950 p-4 rounded shadow-lg text-left text-sm">
+            <h2 className="text-xl font-bold border-b border-green-400 mb-2">Detected Items:</h2>
+            <ul className="list-disc pl-6 space-y-1">
+              {detections.map((det, index) => (
+                <li key={index}>
+                  <span className="font-bold">{det.class}</span> – {det.confidence.toFixed(2)}%
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* === PANEL 4: Camera Controls (Bottom Left) === */}
+        <div className="bg-green-950 border border-green-500 p-4 rounded flex flex-col gap-3 h-full overflow-y-auto">
+          <h3 className="text-center font-bold text-green-300 mb-4">Camera Controls</h3>
+          <button className="bg-black border border-green-600 py-2 hover:bg-green-900 transition text-xs">
+            ▲ Zoom In
+          </button>
+          <button className="bg-black border border-green-600 py-2 hover:bg-green-900 transition text-xs">
+            ▼ Zoom Out
+          </button>
+          <button className="bg-black border border-green-600 py-2 hover:bg-green-900 transition text-xs">
+            ◀ Pan Left
+          </button>
+          <button className="bg-black border border-green-600 py-2 hover:bg-green-900 transition text-xs">
+            ▶ Pan Right
+          </button>
+          <button className="bg-black border border-green-600 py-2 hover:bg-green-900 transition text-xs">
+            ■ Center View
+          </button>
+        </div>
+
+        {/* === PANEL 5: System Status (Bottom Center) === */}
+        <div className="bg-green-950 border border-green-500 p-4 rounded flex flex-col gap-3 h-full overflow-y-auto">
+          <h3 className="text-center font-bold text-green-300 mb-4">System Status</h3>
+          <button className="bg-black border border-green-600 py-2 hover:bg-green-900 transition text-xs text-left pl-3">
+            ✅ AI Model: Active
+          </button>
+          <button className="bg-black border border-green-600 py-2 hover:bg-green-900 transition text-xs text-left pl-3">
+            📶 Connection: Stable
+          </button>
+          <button className="bg-black border border-green-600 py-2 hover:bg-green-900 transition text-xs text-left pl-3">
+            💾 Storage: 42% Used
+          </button>
+          <button className="bg-black border border-green-600 py-2 hover:bg-green-900 transition text-xs text-left pl-3">
+            ⚙️ Resolution: 1080p
+          </button>
+          <button className="bg-black border border-green-600 py-2 hover:bg-green-900 transition text-xs text-left pl-3">
+            🕒 Uptime: 7h 24m
+          </button>
+        </div>
+
+        {/* === PANEL 6: Settings & Export (Bottom Right) === */}
+        <div className="bg-green-950 border border-green-500 p-4 rounded flex flex-col gap-3 h-full overflow-y-auto">
+          <h3 className="text-center font-bold text-green-300 mb-4">Actions</h3>
+          <button className="bg-black border border-green-600 py-2 hover:bg-green-900 transition text-xs">
+            📷 Capture Snapshot
+          </button>
+          <button className="bg-black border border-green-600 py-2 hover:bg-green-900 transition text-xs">
+            📄 Generate Report
+          </button>
+          <button className="bg-black border border-green-600 py-2 hover:bg-green-900 transition text-xs">
+            🔔 Set Alerts
+          </button>
+          <button className="bg-black border border-green-600 py-2 hover:bg-green-900 transition text-xs">
+            📂 Save Session
+          </button>
+          <button className="bg-black border border-green-600 py-2 hover:bg-green-900 transition text-xs">
+            🔐 Lock System
+          </button>
+        </div>
+
+      </div>
     </div>
   );
 }
