@@ -161,7 +161,7 @@ function App() {
       <div className="min-h-screen bg-black text-green-400 font-mono grid grid-cols-3 gap-2">
 
         {/* === MAIN FEED (col-span-2) === */}
-        <div className="col-span-2 relative border-4 border-green-500 shadow-lg rounded overflow-hidden">
+        <div className="col-span-2 row-span-1 relative border-4 border-green-500 shadow-lg rounded overflow-hidden">
           {imageURL ? (
             <>
               <img
@@ -186,21 +186,26 @@ function App() {
         </div>
 
         {/* === DETECTION LIST (right column, top) === */}
-        {detections.length > 0 && (
-          <div className="bg-green-950 p-4 rounded shadow-lg text-left text-sm">
-            <h2 className="text-xl font-bold border-b border-green-400 mb-2">Detected Items:</h2>
-            <ul className="list-disc pl-6 space-y-1">
+        <div className="row-span-1 bg-green-950 p-4 rounded shadow-lg text-left text-sm h-full flex flex-col">
+          <h2 className="text-xl font-bold border-b border-green-400 mb-2">Detected Items:</h2>
+          
+          {detections.length > 0 ? (
+            <ul className="list-disc pl-6 space-y-1 flex-1">
               {detections.map((det, index) => (
                 <li key={index}>
                   <span className="font-bold">{det.class}</span> – {det.confidence.toFixed(2)}%
                 </li>
               ))}
             </ul>
-          </div>
-        )}
+          ) : (
+            <p className="text-green-600 italic text-center py-4 flex-1 flex items-center justify-center">
+              No items detected
+            </p>
+          )}
+        </div>
 
         {/* === PANEL 4: Camera Controls (Bottom Left) === */}
-        <div className="bg-green-950 border border-green-500 p-4 rounded flex flex-col gap-3 h-full overflow-y-auto">
+        <div className="row-start-2 bg-green-950 border border-green-500 p-4 rounded flex flex-col gap-3 h-full overflow-y-auto">
           <h3 className="text-center font-bold text-green-300 mb-4">Camera Controls</h3>
           <button className="bg-black border border-green-600 py-2 hover:bg-green-900 transition text-xs">
             ▲ Zoom In
@@ -220,7 +225,7 @@ function App() {
         </div>
 
         {/* === PANEL 5: System Status (Bottom Center) === */}
-        <div className="bg-green-950 border border-green-500 p-4 rounded flex flex-col gap-3 h-full overflow-y-auto">
+        <div className="row-start-2 bg-green-950 border border-green-500 p-4 rounded flex flex-col gap-3 h-full overflow-y-auto">
           <h3 className="text-center font-bold text-green-300 mb-4">System Status</h3>
           <button className="bg-black border border-green-600 py-2 hover:bg-green-900 transition text-xs text-left pl-3">
             ✅ AI Model: Active
@@ -240,7 +245,7 @@ function App() {
         </div>
 
         {/* === PANEL 6: Settings & Export (Bottom Right) === */}
-        <div className="bg-green-950 border border-green-500 p-4 rounded flex flex-col gap-3 h-full overflow-y-auto">
+        <div className="row-start-2 bg-green-950 border border-green-500 p-4 rounded flex flex-col gap-3 h-full overflow-y-auto">
           <h3 className="text-center font-bold text-green-300 mb-4">Actions</h3>
           <button className="bg-black border border-green-600 py-2 hover:bg-green-900 transition text-xs">
             📷 Capture Snapshot
