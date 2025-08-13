@@ -5,7 +5,7 @@ import numpy as np
 
 class DressDetector:
     def __init__(self):
-        self.model = YOLO("models/yolov8n.pt")  # Load default YOLOv8 model
+        self.model = YOLO("models/best.pt")  # Load default YOLOv8 model hehehehe
 
     def detect(self, image: np.ndarray):
         results = self.model(image)

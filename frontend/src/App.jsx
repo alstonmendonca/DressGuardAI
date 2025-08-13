@@ -2,7 +2,6 @@
 // This component handles image upload, sends it to the backend for YOLOv8 detection,
 // and draws bounding boxes on a canvas over the image.
 // Uses React hooks: useState, useRef, useEffect for state and DOM manipulation.
-
 import { useState, useRef, useEffect } from 'react';
 import './App.css';
 
@@ -20,7 +19,7 @@ function App() {
   /**
    * Draws bounding boxes and labels on the canvas based on detection results.
    * Scales coordinates from original image dimensions to displayed size.
-   * Also draws a crosshair at the center (UI effect).
+   * Also draws a crosshair at the center (UI sniper-scope effect).
    */
   const drawBoxes = () => {
     const canvas = canvasRef.current;
