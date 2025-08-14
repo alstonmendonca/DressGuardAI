@@ -16,72 +16,95 @@ function App() {
   const canvasRef = useRef(null);
   const imageRef = useRef(null);
 
+  const [activeFeed, setActiveFeed] = useState(null); // 'image', 'webcam', 'video'
+  const videoRef = useRef(null);
+  const videoStream = useRef(null);
+  const isDetecting = useRef(false); // FPS limiter
+
+  useEffect(() => {
+    return () => {
+      if (videoRef.current) {
+        videoRef.current.removeEventListener('timeupdate', detectFrameFromVideo);
+      }
+      if (videoStream.current) {
+        videoStream.current.getTracks().forEach(t => t.stop());
+      }
+      if (imageURL) {
+        URL.revokeObjectURL(imageURL);
+      }
+    };
+  }, [imageURL]);
+
+  useEffect(() => {
+    return () => {
+      if (imageURL) URL.revokeObjectURL(imageURL);
+    };
+  }, [imageURL]);
+
   /**
    * Draws bounding boxes and labels on the canvas based on detection results.
    * Scales coordinates from original image dimensions to displayed size.
    * Also draws a crosshair at the center (UI sniper-scope effect).
    */
   const drawBoxes = () => {
-    const canvas = canvasRef.current;
-    const ctx = canvas?.getContext("2d");
-    const img = imageRef.current;
+  const canvas = canvasRef.current;
+  const ctx = canvas?.getContext("2d");
+  let img;
 
-    // Safety check: ensure all required elements are available
-    if (!canvas || !ctx || !img) {
-      console.warn("Canvas, context, or image not available");
-      return;
-    }
+  if (activeFeed === 'video') {
+    img = videoRef.current;
+  } else if (activeFeed === 'image') {
+    img = imageRef.current;
+  } else {
+    return;
+  }
 
-    // Get the actual rendered size of the image (after browser scales it)
-    // Using .width/.height instead of clientWidth ensures correct aspect ratio
-    const displayWidth = img.width;
-    const displayHeight = img.height;
+  if (!canvas || !ctx || !img) return;
 
-    // Resize canvas to exactly match the rendered image
+  const displayWidth = img.width || img.videoWidth;
+  const displayHeight = img.height || img.videoHeight;
+
+  // Only resize canvas if dimensions changed
+  if (canvas.width !== displayWidth || canvas.height !== displayHeight) {
     canvas.width = displayWidth;
     canvas.height = displayHeight;
+  }
 
-    // Calculate scaling factors from original image → displayed size
-    // This allows us to map detection coordinates (from full-res image) to screen
-    const scaleX = displayWidth / img.naturalWidth;
-    const scaleY = displayHeight / img.naturalHeight;
+  // ✅ Only clear and draw boxes — never redraw video
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // Clear previous drawings
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.lineWidth = 2;
+  ctx.font = "16px monospace";
+  ctx.strokeStyle = "#00FF00";
+  ctx.fillStyle = "#00FF00";
 
-    // Style for bounding boxes and text
-    ctx.lineWidth = 2;
-    ctx.font = "16px monospace";
-    ctx.strokeStyle = "#00FF00"; // Neon green
-    ctx.fillStyle = "#00FF00";
+  detections.forEach((det) => {
+    const [x1, y1, x2, y2] = det.bbox;
+    const scaleX = displayWidth / (img.naturalWidth || img.videoWidth);
+    const scaleY = displayHeight / (img.naturalHeight || img.videoHeight);
 
-    // Draw each detected object
-    detections.forEach((det) => {
-      const [x1, y1, x2, y2] = det.bbox; // Bounding box in [left, top, right, bottom]
+    const sx1 = x1 * scaleX;
+    const sy1 = y1 * scaleY;
+    const width = (x2 - x1) * scaleX;
+    const height = (y2 - y1) * scaleY;
 
-      // Scale bounding box to fit displayed image size
-      const sx1 = x1 * scaleX;
-      const sy1 = y1 * scaleY;
-      const width = (x2 - x1) * scaleX;
-      const height = (y2 - y1) * scaleY;
+    ctx.strokeRect(sx1, sy1, width, height);
+    ctx.fillText(
+      `${det.class} (${Math.round(det.confidence * 100)}%)`,
+      sx1,
+      sy1 > 20 ? sy1 - 5 : sy1 + 20
+    );
+  });
 
-      // Draw rectangle
-      ctx.strokeRect(sx1, sy1, width, height);
-
-      // Draw label above or below box to avoid going off-screen
-      const textY = sy1 > 20 ? sy1 - 5 : sy1 + 20; // If near top, place below
-      ctx.fillText(`${det.class} (${Math.round(det.confidence * 100)}%)`, sx1, textY);
-    });
-
-    // Draw center crosshair (sniper-style UI for surveillance theme)
-    ctx.strokeStyle = "#00FF00";
-    ctx.beginPath();
-    ctx.moveTo(canvas.width / 2 - 20, canvas.height / 2);
-    ctx.lineTo(canvas.width / 2 + 20, canvas.height / 2);
-    ctx.moveTo(canvas.width / 2, canvas.height / 2 - 20);
-    ctx.lineTo(canvas.width / 2, canvas.height / 2 + 20);
-    ctx.stroke();
-  };
+  // Crosshair
+  ctx.strokeStyle = "#00FF00";
+  ctx.beginPath();
+  ctx.moveTo(canvas.width / 2 - 20, canvas.height / 2);
+  ctx.lineTo(canvas.width / 2 + 20, canvas.height / 2);
+  ctx.moveTo(canvas.width / 2, canvas.height / 2 - 20);
+  ctx.lineTo(canvas.width / 2, canvas.height / 2 + 20);
+  ctx.stroke();
+};
 
   /**
    * Handles file upload:
@@ -90,47 +113,44 @@ function App() {
    * - Receives detections and triggers box drawing
    */
   const handleFileChange = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
+  const file = e.target.files[0];
+  if (!file) return;
 
-    // Create a temporary URL for previewing the image
-    const imageBlobURL = URL.createObjectURL(file);
-    setImageURL(imageBlobURL);
-    setDetections([]); // Reset previous results
+  const url = URL.createObjectURL(file);
+  setDetections([]);
+  isDetecting.current = false;
 
-    // Prepare form data to send image to backend
+  if (file.type.startsWith("image/")) {
+    setImageURL(url);
+    setActiveFeed('image');
+
     const formData = new FormData();
     formData.append("file", file);
 
     try {
-      // Send image to YOLOv8 backend
       const response = await fetch("http://127.0.0.1:8000/detect/", {
         method: "POST",
         body: formData,
       });
 
-      // Handle non-200 responses (e.g., server error)
-      if (!response.ok) {
-        const errorMsg = await response.text();
-        console.error("Detection failed:", errorMsg);
-        return;
-      }
-
-      // Parse JSON response
-      const data = await response.json();
-      console.log("Detection result:", data);
-      setDetections(data.clothes_detected);
-
-      // If image has already loaded, draw boxes immediately
-      if (imageRef.current?.complete) {
-        console.log("Image already loaded, drawing boxes...");
-        drawBoxes();
+      if (response.ok) {
+        const data = await response.json();
+        setDetections(data.clothes_detected);
       }
     } catch (err) {
-      // Catch network errors or CORS issues
-      console.error("Fetch error (check if backend is running):", err);
+      console.error("Detection error:", err);
     }
-  };
+  } 
+  else if (file.type.startsWith("video/")) {
+    // ✅ Step 1: Set activeFeed FIRST
+    setActiveFeed('video');
+    setImageURL(url);
+    setDetections([]);
+
+    // ✅ Step 2: Use useEffect or wait for render
+    // We'll handle src and event listener in JSX via `onLoadedMetadata`
+  }
+};
 
   /**
    * Redraw boxes if detections or image URL changes.
@@ -143,6 +163,114 @@ function App() {
     }
   }, [imageURL, detections]); // Re-run when image or detections change
 
+  const startWebcam = async () => {
+    setActiveFeed('webcam');
+    setDetections([]);
+    isDetecting.current = false;
+
+    const video = videoRef.current;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      videoStream.current = stream;
+      video.srcObject = stream;
+
+      video.onloadedmetadata = () => {
+        video.play();
+        requestAnimationFrame(captureAndDetect); // Start loop
+      };
+    } catch (err) {
+      console.error("Webcam access denied:", err);
+      alert("Unable to access camera. Check permissions.");
+      setActiveFeed(null);
+    }
+  };
+
+  const captureAndDetect = async () => {
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+
+    if (!video || !canvas || isDetecting.current) {
+      requestAnimationFrame(captureAndDetect);
+      return;
+    }
+
+    isDetecting.current = true;
+
+    // Draw current frame to canvas
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    canvas.getContext("2d").drawImage(video, 0, 0);
+
+    // Convert to blob and send
+    canvas.toBlob(async (blob) => {
+      const formData = new FormData();
+      formData.append("file", blob, "frame.jpg");
+
+      try {
+        const response = await fetch("http://127.0.0.1:8000/detect/", {
+          method: "POST",
+          body: formData,
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          setDetections(data.clothes_detected);
+          drawBoxes(); // Update canvas
+        }
+      } catch (err) {
+        console.error("Detection error:", err);
+      } finally {
+        isDetecting.current = false;
+      }
+    }, "image/jpeg", 0.7);
+
+    requestAnimationFrame(captureAndDetect); // Continue loop
+  };
+
+  const detectFrameFromVideo = async () => {
+    if (isDetecting.current) return;
+    isDetecting.current = true;
+
+    const video = videoRef.current;
+    const displayCanvas = canvasRef.current; // For drawing boxes only
+    if (!video || !displayCanvas) {
+      isDetecting.current = false;
+      return;
+    }
+
+    // ✅ Step 1: Use a temporary canvas to extract the frame for detection
+    const tempCanvas = document.createElement('canvas');
+    const tempCtx = tempCanvas.getContext('2d');
+    tempCanvas.width = video.videoWidth;
+    tempCanvas.height = video.videoHeight;
+    tempCtx.drawImage(video, 0, 0);
+
+    // ✅ Step 2: Send frame to backend
+    tempCanvas.toBlob(async (blob) => {
+      const formData = new FormData();
+      formData.append("file", blob, "frame.jpg");
+
+      try {
+        const response = await fetch("http://127.0.0.1:8000/detect/", {
+          method: "POST",
+          body: formData,
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          setDetections(data.clothes_detected);
+
+          // ✅ Step 3: Only draw boxes — no video redraw
+          drawBoxes();
+        }
+      } catch (err) {
+        console.error("Detection error:", err);
+      } finally {
+        isDetecting.current = false;
+      }
+    }, "image/jpeg", 0.7);
+  };
+
   return (
     <div className="p-0">
       <h1 className="bg-black text-green-400 font-mono text-3xl mb-6 border-b-2 pb-2 border-green-400 tracking-widest uppercase w-auto">
@@ -152,7 +280,7 @@ function App() {
       {/* File input */}
       <input
         type="file"
-        accept="image/*"
+        accept="image/*,video/*"  
         onChange={handleFileChange}
         className="mb-6 bg-green-900 text-green-300 border border-green-400 p-2 rounded hover:bg-green-800 transition-all"
       />
@@ -162,25 +290,41 @@ function App() {
 
         {/* === MAIN FEED (col-span-2) === */}
         <div className="col-span-2 row-span-1 relative border-4 border-green-500 shadow-lg rounded overflow-hidden">
-          {imageURL ? (
+          {activeFeed === 'image' && imageURL ? (
             <>
               <img
                 src={imageURL}
                 alt="Uploaded"
                 ref={imageRef}
-                onLoad={() => {
-                  if (detections.length > 0) drawBoxes();
-                }}
+                onLoad={() => detections.length > 0 && drawBoxes()}
                 className="w-full h-auto"
               />
-              <canvas
-                ref={canvasRef}
-                className="absolute top-0 left-0 pointer-events-none"
+              <canvas ref={canvasRef} className="absolute top-0 left-0 pointer-events-none" />
+            </>
+          ) : activeFeed === 'video' && imageURL ? (
+            <>
+              <video
+                ref={videoRef}
+                src={imageURL}
+                className="w-full h-auto"
+                onLoadedMetadata={(e) => {
+                  e.target.play();
+                  e.target.addEventListener('timeupdate', detectFrameFromVideo);
+                }}
+                onEnded={() => (isDetecting.current = false)}
+                playsInline
+                autoPlay
               />
+              <canvas ref={canvasRef} className="absolute top-0 left-0 pointer-events-none" />
+            </>
+          ) : activeFeed === 'webcam' ? (
+            <>
+              <video ref={videoRef} autoPlay muted playsInline className="w-full h-auto" />
+              <canvas ref={canvasRef} className="absolute top-0 left-0 pointer-events-none" />
             </>
           ) : (
             <div className="w-full h-64 bg-black flex items-center justify-center">
-              <span className="text-green-600">Upload an image to begin</span>
+              <span className="text-green-600">Upload an image or video</span>
             </div>
           )}
         </div>
@@ -206,7 +350,7 @@ function App() {
 
         {/* === PANEL 4: Allows to choose from different camera feeds*/}
         <div className="row-start-2 bg-green-950 border border-green-500 p-4 rounded flex flex-col gap-3 h-full overflow-y-auto">
-          <h3 className="text-center font-bold text-green-300 mb-4">Camera Controls</h3>
+          <h3 className="text-center font-bold text-green-300 mb-4">Camera</h3>
           <button className="bg-black border border-green-600 py-2 hover:bg-green-900 transition text-xs">
             Webcam
           </button>
@@ -219,8 +363,11 @@ function App() {
           <button className="bg-black border border-green-600 py-2 hover:bg-green-900 transition text-xs">
             Camera-3
           </button>
-          <button className="bg-black border border-green-600 py-2 hover:bg-green-900 transition text-xs">
-            Upload Image
+          <button
+            className="bg-black border border-green-600 py-2 hover:bg-green-900 transition text-xs"
+            onClick={() => document.querySelector('input[type="file"]').click()}
+          >
+            📁 Upload Media
           </button>
         </div>
 
