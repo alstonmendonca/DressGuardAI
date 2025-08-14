@@ -59,44 +59,55 @@ function App() {
     return;
   }
 
-  if (!canvas || !ctx || !img) return;
+  if (!canvas || !ctx || !img) {
+    console.warn("Missing canvas, ctx, or img");
+    return;
+  }
 
-  const displayWidth = img.width || img.videoWidth;
-  const displayHeight = img.height || img.videoHeight;
+  // ✅ Use rendered size (what's on screen)
+  const displayWidth = img.clientWidth || img.width || 640;
+  const displayHeight = img.clientHeight || img.height || 480;
 
-  // Only resize canvas if dimensions changed
+  // Ensure canvas matches rendered size
   if (canvas.width !== displayWidth || canvas.height !== displayHeight) {
     canvas.width = displayWidth;
     canvas.height = displayHeight;
   }
 
-  // ✅ Only clear and draw boxes — never redraw video
+  // Clear previous drawings
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+  // Set styles
   ctx.lineWidth = 2;
   ctx.font = "16px monospace";
   ctx.strokeStyle = "#00FF00";
   ctx.fillStyle = "#00FF00";
 
+  // Scaling from original → displayed
+  const originalWidth = img.naturalWidth || img.videoWidth;
+  const originalHeight = img.naturalHeight || img.videoHeight;
+  const scaleX = displayWidth / originalWidth;
+  const scaleY = displayHeight / originalHeight;
+
   detections.forEach((det) => {
     const [x1, y1, x2, y2] = det.bbox;
-    const scaleX = displayWidth / (img.naturalWidth || img.videoWidth);
-    const scaleY = displayHeight / (img.naturalHeight || img.videoHeight);
 
+    // Scale to rendered size
     const sx1 = x1 * scaleX;
     const sy1 = y1 * scaleY;
     const width = (x2 - x1) * scaleX;
     const height = (y2 - y1) * scaleY;
 
+    // Safety: skip if out of bounds
+    if (isNaN(sx1) || isNaN(sy1) || isNaN(width) || isNaN(height)) return;
+
     ctx.strokeRect(sx1, sy1, width, height);
-    ctx.fillText(
-      `${det.class} (${Math.round(det.confidence * 100)}%)`,
-      sx1,
-      sy1 > 20 ? sy1 - 5 : sy1 + 20
-    );
+
+    const textY = sy1 > 20 ? sy1 - 5 : sy1 + 20;
+    ctx.fillText(`${det.class} (${Math.round(det.confidence * 100)}%)`, sx1, textY);
   });
 
-  // Crosshair
+  // Draw crosshair
   ctx.strokeStyle = "#00FF00";
   ctx.beginPath();
   ctx.moveTo(canvas.width / 2 - 20, canvas.height / 2);
@@ -157,11 +168,10 @@ function App() {
    * Acts as a fallback in case onLoad fires before detection completes.
    */
   useEffect(() => {
-    if (imageURL && detections.length > 0 && imageRef.current?.complete) {
-      console.log("Redrawing boxes (useEffect trigger)");
-      drawBoxes();
+    if (detections.length > 0) {
+      requestAnimationFrame(drawBoxes);
     }
-  }, [imageURL, detections]); // Re-run when image or detections change
+  }, [detections]);
 
   const startWebcam = async () => {
     setActiveFeed('webcam');
@@ -259,6 +269,7 @@ function App() {
         if (response.ok) {
           const data = await response.json();
           setDetections(data.clothes_detected);
+          requestAnimationFrame(drawBoxes); // Ensure DOM is ready
 
           // ✅ Step 3: Only draw boxes — no video redraw
           drawBoxes();
@@ -299,7 +310,7 @@ function App() {
                 onLoad={() => detections.length > 0 && drawBoxes()}
                 className="w-full h-auto"
               />
-              <canvas ref={canvasRef} className="absolute top-0 left-0 pointer-events-none" />
+              <canvas ref={canvasRef} className="absolute top-0 left-0 pointer-events-none"  />
             </>
           ) : activeFeed === 'video' && imageURL ? (
             <>
