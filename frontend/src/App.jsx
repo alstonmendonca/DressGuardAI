@@ -4,7 +4,6 @@
 // Uses React hooks: useState, useRef, useEffect for state and DOM manipulation.
 import { useState, useRef, useEffect } from 'react';
 import drawBoxes from './utils/drawBoxes';
-import captureAndDetect from './utils/captureAndDetect';
 import detectFrameFromVideo from './utils/detectFrameFromVideo';
 import './App.css';
 import CameraPanel from './components/CameraPanel';
@@ -111,28 +110,91 @@ function App() {
   }, [detections]);
 
   const startWebcam = async () => {
-    setActiveFeed('webcam');
-    setDetections([]);
+  setActiveFeed('webcam');
+  setDetections([]);
+  isDetecting.current = false;
+
+  const video = videoRef.current;
+  if (!video) return;
+
+  // Stop existing stream
+  if (videoStream.current) {
+    videoStream.current.getTracks().forEach(t => t.stop());
+  }
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+    videoStream.current = stream;
+    video.srcObject = stream;
+
+    video.onloadedmetadata = () => {
+      video.play();
+      requestAnimationFrame(captureAndDetectLoop);
+    };
+  } catch (err) {
+    console.error("Webcam access denied:", err);
+    alert("Unable to access camera. Check permissions.");
+    setActiveFeed(null);
+  }
+};
+
+const captureAndDetectLoop = async () => {
+  const video = videoRef.current;
+  const canvas = canvasRef.current;
+
+  if (!video || !canvas || !video.srcObject) {
     isDetecting.current = false;
+    return;
+  }
 
-    const video = videoRef.current;
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-      videoStream.current = stream;
-      video.srcObject = stream;
+  // Throttle: only run every ~500ms (~2 FPS)
+  if (isDetecting.current) {
+    requestAnimationFrame(captureAndDetectLoop);
+    return;
+  }
 
-      video.onloadedmetadata = () => {
-        video.play();
-        requestAnimationFrame(() => {
-          captureAndDetect({videoRef, canvasRef, isDetecting, setDetections, drawBoxes})
-        }); // Start loop
-      };
-    } catch (err) {
-      console.error("Webcam access denied:", err);
-      alert("Unable to access camera. Check permissions.");
-      setActiveFeed(null);
+  isDetecting.current = true;
+
+  // Set canvas size to video size
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+
+  // Draw frame to canvas
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+  // Convert to blob
+  canvas.toBlob(async (blob) => {
+    if (!blob) {
+      isDetecting.current = false;
+      requestAnimationFrame(captureAndDetectLoop);
+      return;
     }
-  };
+
+    const formData = new FormData();
+    formData.append("file", blob, "webcam-frame.jpg");
+
+    try {
+      const response = await fetch("http://127.0.0.1:8000/detect/", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setDetections(data.clothes_detected);
+        drawBoxes({ canvasRef, imageRef, videoRef, activeFeed, detections });
+      }
+    } catch (err) {
+      console.error("Webcam detection error:", err);
+    } finally {
+      isDetecting.current = false;
+    }
+
+    // Continue loop
+    requestAnimationFrame(captureAndDetectLoop);
+  }, "image/jpeg", 0.7);
+};
 
   return (
     <div className="p-0">
@@ -163,13 +225,14 @@ function App() {
           detectFrameFromVideo={detectFrameFromVideo}
           isDetecting={isDetecting}
           setDetections={setDetections}
+          startWebcam={startWebcam} 
         />
 
         {/* === DETECTION LIST (right column, top) === */}
         <DetectionList detections={detections} />
 
         {/* === PANEL 4: Allows to choose from different camera feeds*/}
-        <CameraPanel/>
+        <CameraPanel onStartWebcam={startWebcam}/>
 
         {/* === PANEL 5: System Status (Bottom Center) === */}
         <StatusPanel/>

@@ -11,7 +11,8 @@ export default function MainFeed({
   drawBoxes,
   detectFrameFromVideo,
   isDetecting,
-  setDetections
+  setDetections,
+  startWebcam,
 }) {
   return (
     <div className="col-span-2 row-span-1 relative border-4 border-green-500 shadow-lg rounded overflow-hidden">
@@ -69,19 +70,34 @@ export default function MainFeed({
           />
         </>
       ) : activeFeed === "webcam" ? (
-        <>
-          <video
-            ref={videoRef}
-            autoPlay
-            muted
-            playsInline
-            className="w-full h-auto"
-          />
-          <canvas
-            ref={canvasRef}
-            className="absolute top-0 left-0 pointer-events-none"
-          />
-        </>
+        // ✅ Show "Turn on Webcam" button
+        videoRef.current?.srcObject ? (
+          // If stream is active, show video + canvas
+          <>
+            <video
+              ref={videoRef}
+              autoPlay
+              muted
+              playsInline
+              className="w-full h-auto"
+            />
+            <canvas
+              ref={canvasRef}
+              className="absolute top-0 left-0 pointer-events-none"
+            />
+          </>
+        ) : (
+          // If not, show button
+          <div className="w-full h-64 bg-black flex flex-col items-center justify-center space-y-4">
+            <span className="text-green-600">Webcam is off</span>
+            <button
+              className="bg-green-700 hover:bg-green-600 text-black px-6 py-2 rounded font-mono text-sm"
+              onClick={startWebcam}
+            >
+              Turn on Webcam
+            </button>
+          </div>
+        )
       ) : (
         <div className="w-full h-64 bg-black flex items-center justify-center">
           <span className="text-green-600">Upload an image or video</span>
