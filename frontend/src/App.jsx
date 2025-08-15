@@ -10,6 +10,8 @@ import './App.css';
 import CameraPanel from './components/CameraPanel';
 import StatusPanel from './components/StatusPanel';
 import ActionsPanel from './components/ActionsPanel';
+import DetectionList from './components/DetectionList';
+import MainFeed from "./components/MainFeed";
 
 function App() {
   // State to store the uploaded image as a blob URL
@@ -150,66 +152,21 @@ function App() {
       <div className="min-h-screen bg-black text-green-400 font-mono grid grid-cols-3 gap-2">
 
         {/* === MAIN FEED (col-span-2) === */}
-        <div className="col-span-2 row-span-1 relative border-4 border-green-500 shadow-lg rounded overflow-hidden">
-          {activeFeed === 'image' && imageURL ? (
-            <>
-              <img
-                src={imageURL}
-                alt="Uploaded"
-                ref={imageRef}
-                onLoad={() => detections.length > 0 && drawBoxes({ canvasRef, imageRef, videoRef, activeFeed, detections })}
-                className="w-full h-auto"
-              />
-              <canvas ref={canvasRef} className="absolute top-0 left-0 pointer-events-none"  />
-            </>
-          ) : activeFeed === 'video' && imageURL ? (
-            <>
-              <video
-                ref={videoRef}
-                src={imageURL}
-                className="w-full h-auto"
-                onLoadedMetadata={(e) => {
-                  e.target.play();
-                  e.target.addEventListener('timeupdate', () => {
-                    detectFrameFromVideo({imageRef, videoRef, activeFeed,canvasRef, isDetecting, setDetections, drawBoxes, detections })
-                  });
-                }}
-                onEnded={() => (isDetecting.current = false)}
-                playsInline
-                autoPlay
-              />
-              <canvas ref={canvasRef} className="absolute top-0 left-0 pointer-events-none" />
-            </>
-          ) : activeFeed === 'webcam' ? (
-            <>
-              <video ref={videoRef} autoPlay muted playsInline className="w-full h-auto" />
-              <canvas ref={canvasRef} className="absolute top-0 left-0 pointer-events-none" />
-            </>
-          ) : (
-            <div className="w-full h-64 bg-black flex items-center justify-center">
-              <span className="text-green-600">Upload an image or video</span>
-            </div>
-          )}
-        </div>
+        <MainFeed
+          activeFeed={activeFeed}
+          imageURL={imageURL}
+          imageRef={imageRef}
+          videoRef={videoRef}
+          canvasRef={canvasRef}
+          detections={detections}
+          drawBoxes={drawBoxes}
+          detectFrameFromVideo={detectFrameFromVideo}
+          isDetecting={isDetecting}
+          setDetections={setDetections}
+        />
 
         {/* === DETECTION LIST (right column, top) === */}
-        <div className="row-span-1 bg-green-950 p-4 rounded shadow-lg text-left text-sm h-full flex flex-col">
-          <h2 className="text-xl font-bold border-b border-green-400 mb-2">Detected Items:</h2>
-          
-          {detections.length > 0 ? (
-            <ul className="list-disc pl-6 space-y-1 flex-1">
-              {detections.map((det, index) => (
-                <li key={index}>
-                  <span className="font-bold">{det.class}</span> – {det.confidence.toFixed(2)}%
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="text-green-600 italic text-center py-4 flex-1 flex items-center justify-center">
-              No items detected
-            </p>
-          )}
-        </div>
+        <DetectionList detections={detections} />
 
         {/* === PANEL 4: Allows to choose from different camera feeds*/}
         <CameraPanel/>
