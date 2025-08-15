@@ -1,5 +1,5 @@
-// components/MainFeed.jsx
-import React from "react";
+
+import React, { useState } from "react";
 
 export default function MainFeed({
   activeFeed,
@@ -13,7 +13,10 @@ export default function MainFeed({
   isDetecting,
   setDetections,
   startWebcam,
+  onWebcamStreamStart,
 }) {
+  const [isStreaming, setIsStreaming] = useState(false); // ← Track stream state
+
   return (
     <div className="col-span-2 row-span-1 relative border-4 border-green-500 shadow-lg rounded overflow-hidden">
       {activeFeed === "image" && imageURL ? (
@@ -29,7 +32,7 @@ export default function MainFeed({
                 imageRef,
                 videoRef,
                 activeFeed,
-                detections
+                detections,
               })
             }
             className="w-full h-auto"
@@ -56,7 +59,7 @@ export default function MainFeed({
                   isDetecting,
                   setDetections,
                   drawBoxes,
-                  detections
+                  detections,
                 });
               });
             }}
@@ -70,9 +73,7 @@ export default function MainFeed({
           />
         </>
       ) : activeFeed === "webcam" ? (
-        // ✅ Show "Turn on Webcam" button
         videoRef.current?.srcObject ? (
-          // If stream is active, show video + canvas
           <>
             <video
               ref={videoRef}
@@ -80,6 +81,10 @@ export default function MainFeed({
               muted
               playsInline
               className="w-full h-auto"
+              onPlay={() => {
+                setIsStreaming(true);
+                onWebcamStreamStart(); // ← Callback
+                }}
             />
             <canvas
               ref={canvasRef}
@@ -87,11 +92,10 @@ export default function MainFeed({
             />
           </>
         ) : (
-          // If not, show button
           <div className="w-full h-64 bg-black flex flex-col items-center justify-center space-y-4">
             <span className="text-green-600">Webcam is off</span>
             <button
-              className="bg-green-700 hover:bg-green-600 text-black px-6 py-2 rounded font-mono text-sm"
+              className="bg-black border border-green-600 py-2 hover:bg-green-900 transition text-xs"
               onClick={startWebcam}
             >
               Turn on Webcam

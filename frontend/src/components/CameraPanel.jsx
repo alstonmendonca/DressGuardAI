@@ -23,7 +23,7 @@ export default function CameraPanel({ onStartWebcam }){
             className="bg-black border border-green-600 py-2 hover:bg-green-900 transition text-xs"
             onClick={() => document.querySelector('input[type="file"]').click()}
           >
-            📁 Upload Media
+            Upload Media
           </button>
         </div>
     );

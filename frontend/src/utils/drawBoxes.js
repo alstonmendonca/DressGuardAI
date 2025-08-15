@@ -6,45 +6,43 @@
  */
 
 export default function drawBoxes({ 
-  canvasRef, imageRef, videoRef, activeFeed, detections 
+  canvasRef, 
+  imageRef, 
+  videoRef, 
+  activeFeed, 
+  detections 
 }) {
   const canvas = canvasRef.current;
   const ctx = canvas?.getContext("2d");
-  let img;
 
-  if (activeFeed === 'video') {
-    img = videoRef.current;
-  } else if (activeFeed === 'image') {
+  let img;
+  if (activeFeed === 'image') {
     img = imageRef.current;
+  } else if (activeFeed === 'video' || activeFeed === 'webcam') {
+    img = videoRef.current;
   } else {
     return;
   }
 
   if (!canvas || !ctx || !img) {
-    console.warn("Missing canvas, ctx, or img");
+    // Don't warn every frame — only once
     return;
   }
 
-  // ✅ Use rendered size (what's on screen)
   const displayWidth = img.clientWidth || img.width || 640;
   const displayHeight = img.clientHeight || img.height || 480;
 
-  // Ensure canvas matches rendered size
   if (canvas.width !== displayWidth || canvas.height !== displayHeight) {
     canvas.width = displayWidth;
     canvas.height = displayHeight;
   }
 
-  // Clear previous drawings
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-  // Set styles
   ctx.lineWidth = 2;
   ctx.font = "16px monospace";
   ctx.strokeStyle = "#00FF00";
   ctx.fillStyle = "#00FF00";
 
-  // Scaling from original → displayed
   const originalWidth = img.naturalWidth || img.videoWidth;
   const originalHeight = img.naturalHeight || img.videoHeight;
   const scaleX = displayWidth / originalWidth;
@@ -52,23 +50,22 @@ export default function drawBoxes({
 
   detections.forEach((det) => {
     const [x1, y1, x2, y2] = det.bbox;
-
-    // Scale to rendered size
     const sx1 = x1 * scaleX;
     const sy1 = y1 * scaleY;
     const width = (x2 - x1) * scaleX;
     const height = (y2 - y1) * scaleY;
 
-    // Safety: skip if out of bounds
-    if (isNaN(sx1) || isNaN(sy1) || isNaN(width) || isNaN(height)) return;
+    if (isNaN(sx1) || isNaN(sy1)) return;
 
     ctx.strokeRect(sx1, sy1, width, height);
-
-    const textY = sy1 > 20 ? sy1 - 5 : sy1 + 20;
-    ctx.fillText(`${det.class} (${Math.round(det.confidence * 100)}%)`, sx1, textY);
+    ctx.fillText(
+      `${det.class} (${Math.round(det.confidence * 100)}%)`,
+      sx1,
+      sy1 > 20 ? sy1 - 5 : sy1 + 20
+    );
   });
 
-  // Draw crosshair
+  // Crosshair
   ctx.strokeStyle = "#00FF00";
   ctx.beginPath();
   ctx.moveTo(canvas.width / 2 - 20, canvas.height / 2);
