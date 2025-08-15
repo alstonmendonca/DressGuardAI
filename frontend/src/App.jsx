@@ -7,6 +7,9 @@ import drawBoxes from './utils/drawBoxes';
 import captureAndDetect from './utils/captureAndDetect';
 import detectFrameFromVideo from './utils/detectFrameFromVideo';
 import './App.css';
+import CameraPanel from './components/CameraPanel';
+import StatusPanel from './components/StatusPanel';
+import ActionsPanel from './components/ActionsPanel';
 
 function App() {
   // State to store the uploaded image as a blob URL
@@ -209,67 +212,13 @@ function App() {
         </div>
 
         {/* === PANEL 4: Allows to choose from different camera feeds*/}
-        <div className="row-start-2 bg-green-950 border border-green-500 p-4 rounded flex flex-col gap-3 h-full overflow-y-auto">
-          <h3 className="text-center font-bold text-green-300 mb-4">Camera</h3>
-          <button className="bg-black border border-green-600 py-2 hover:bg-green-900 transition text-xs">
-            Webcam
-          </button>
-          <button className="bg-black border border-green-600 py-2 hover:bg-green-900 transition text-xs">
-            Camera-1
-          </button>
-          <button className="bg-black border border-green-600 py-2 hover:bg-green-900 transition text-xs">
-            Camera-2
-          </button>
-          <button className="bg-black border border-green-600 py-2 hover:bg-green-900 transition text-xs">
-            Camera-3
-          </button>
-          <button
-            className="bg-black border border-green-600 py-2 hover:bg-green-900 transition text-xs"
-            onClick={() => document.querySelector('input[type="file"]').click()}
-          >
-            📁 Upload Media
-          </button>
-        </div>
+        <CameraPanel/>
 
         {/* === PANEL 5: System Status (Bottom Center) === */}
-        <div className="row-start-2 bg-green-950 border border-green-500 p-4 rounded flex flex-col gap-3 h-full overflow-y-auto">
-          <h3 className="text-center font-bold text-green-300 mb-4">System Status</h3>
-          <button className="bg-black border border-green-600 py-2 hover:bg-green-900 transition text-xs text-left pl-3">
-            ✅ AI Model: Active
-          </button>
-          <button className="bg-black border border-green-600 py-2 hover:bg-green-900 transition text-xs text-left pl-3">
-            📶 Connection: Stable
-          </button>
-          <button className="bg-black border border-green-600 py-2 hover:bg-green-900 transition text-xs text-left pl-3">
-            💾 Storage: 42% Used
-          </button>
-          <button className="bg-black border border-green-600 py-2 hover:bg-green-900 transition text-xs text-left pl-3">
-            ⚙️ Resolution: 1080p
-          </button>
-          <button className="bg-black border border-green-600 py-2 hover:bg-green-900 transition text-xs text-left pl-3">
-            🕒 Uptime: 7h 24m
-          </button>
-        </div>
+        <StatusPanel/>
 
         {/* === PANEL 6: Settings & Export (Bottom Right) === */}
-        <div className="row-start-2 bg-green-950 border border-green-500 p-4 rounded flex flex-col gap-3 h-full overflow-y-auto">
-          <h3 className="text-center font-bold text-green-300 mb-4">Actions</h3>
-          <button className="bg-black border border-green-600 py-2 hover:bg-green-900 transition text-xs">
-            Change Model
-          </button>
-          <button className="bg-black border border-green-600 py-2 hover:bg-green-900 transition text-xs">
-            📄 Generate Report
-          </button>
-          <button className="bg-black border border-green-600 py-2 hover:bg-green-900 transition text-xs">
-            🔔 Set Alerts
-          </button>
-          <button className="bg-black border border-green-600 py-2 hover:bg-green-900 transition text-xs">
-            📂 Save Session
-          </button>
-          <button className="bg-black border border-green-600 py-2 hover:bg-green-900 transition text-xs">
-            History
-          </button>
-        </div>
+        <ActionsPanel/>
 
       </div>
     </div>
