@@ -3,6 +3,7 @@
 // and draws bounding boxes on a canvas over the image.
 // Uses React hooks: useState, useRef, useEffect for state and DOM manipulation.
 import { useState, useRef, useEffect } from 'react';
+import drawBoxes from './utils/drawBoxes';
 import './App.css';
 
 function App() {
@@ -40,82 +41,6 @@ function App() {
       if (imageURL) URL.revokeObjectURL(imageURL);
     };
   }, [imageURL]);
-
-  /**
-   * Draws bounding boxes and labels on the canvas based on detection results.
-   * Scales coordinates from original image dimensions to displayed size.
-   * Also draws a crosshair at the center (UI sniper-scope effect).
-   */
-  const drawBoxes = () => {
-  const canvas = canvasRef.current;
-  const ctx = canvas?.getContext("2d");
-  let img;
-
-  if (activeFeed === 'video') {
-    img = videoRef.current;
-  } else if (activeFeed === 'image') {
-    img = imageRef.current;
-  } else {
-    return;
-  }
-
-  if (!canvas || !ctx || !img) {
-    console.warn("Missing canvas, ctx, or img");
-    return;
-  }
-
-  // ✅ Use rendered size (what's on screen)
-  const displayWidth = img.clientWidth || img.width || 640;
-  const displayHeight = img.clientHeight || img.height || 480;
-
-  // Ensure canvas matches rendered size
-  if (canvas.width !== displayWidth || canvas.height !== displayHeight) {
-    canvas.width = displayWidth;
-    canvas.height = displayHeight;
-  }
-
-  // Clear previous drawings
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-  // Set styles
-  ctx.lineWidth = 2;
-  ctx.font = "16px monospace";
-  ctx.strokeStyle = "#00FF00";
-  ctx.fillStyle = "#00FF00";
-
-  // Scaling from original → displayed
-  const originalWidth = img.naturalWidth || img.videoWidth;
-  const originalHeight = img.naturalHeight || img.videoHeight;
-  const scaleX = displayWidth / originalWidth;
-  const scaleY = displayHeight / originalHeight;
-
-  detections.forEach((det) => {
-    const [x1, y1, x2, y2] = det.bbox;
-
-    // Scale to rendered size
-    const sx1 = x1 * scaleX;
-    const sy1 = y1 * scaleY;
-    const width = (x2 - x1) * scaleX;
-    const height = (y2 - y1) * scaleY;
-
-    // Safety: skip if out of bounds
-    if (isNaN(sx1) || isNaN(sy1) || isNaN(width) || isNaN(height)) return;
-
-    ctx.strokeRect(sx1, sy1, width, height);
-
-    const textY = sy1 > 20 ? sy1 - 5 : sy1 + 20;
-    ctx.fillText(`${det.class} (${Math.round(det.confidence * 100)}%)`, sx1, textY);
-  });
-
-  // Draw crosshair
-  ctx.strokeStyle = "#00FF00";
-  ctx.beginPath();
-  ctx.moveTo(canvas.width / 2 - 20, canvas.height / 2);
-  ctx.lineTo(canvas.width / 2 + 20, canvas.height / 2);
-  ctx.moveTo(canvas.width / 2, canvas.height / 2 - 20);
-  ctx.lineTo(canvas.width / 2, canvas.height / 2 + 20);
-  ctx.stroke();
-};
 
   /**
    * Handles file upload:
@@ -169,7 +94,10 @@ function App() {
    */
   useEffect(() => {
     if (detections.length > 0) {
-      requestAnimationFrame(drawBoxes);
+      requestAnimationFrame(() => 
+        drawBoxes({ canvasRef, imageRef, videoRef, activeFeed, detections })
+      );
+
     }
   }, [detections]);
 
@@ -225,7 +153,7 @@ function App() {
         if (response.ok) {
           const data = await response.json();
           setDetections(data.clothes_detected);
-          drawBoxes(); // Update canvas
+          drawBoxes({ canvasRef, imageRef, videoRef, activeFeed, detections });
         }
       } catch (err) {
         console.error("Detection error:", err);
@@ -269,10 +197,13 @@ function App() {
         if (response.ok) {
           const data = await response.json();
           setDetections(data.clothes_detected);
-          requestAnimationFrame(drawBoxes); // Ensure DOM is ready
+          requestAnimationFrame(() => 
+            drawBoxes({ canvasRef, imageRef, videoRef, activeFeed, detections })    // Ensure DOM is ready
+          );
+          
 
           // ✅ Step 3: Only draw boxes — no video redraw
-          drawBoxes();
+          drawBoxes({ canvasRef, imageRef, videoRef, activeFeed, detections });
         }
       } catch (err) {
         console.error("Detection error:", err);
@@ -307,7 +238,7 @@ function App() {
                 src={imageURL}
                 alt="Uploaded"
                 ref={imageRef}
-                onLoad={() => detections.length > 0 && drawBoxes()}
+                onLoad={() => detections.length > 0 && drawBoxes({ canvasRef, imageRef, videoRef, activeFeed, detections })}
                 className="w-full h-auto"
               />
               <canvas ref={canvasRef} className="absolute top-0 left-0 pointer-events-none"  />
@@ -406,7 +337,7 @@ function App() {
         <div className="row-start-2 bg-green-950 border border-green-500 p-4 rounded flex flex-col gap-3 h-full overflow-y-auto">
           <h3 className="text-center font-bold text-green-300 mb-4">Actions</h3>
           <button className="bg-black border border-green-600 py-2 hover:bg-green-900 transition text-xs">
-            📷 Capture Snapshot
+            Change Model
           </button>
           <button className="bg-black border border-green-600 py-2 hover:bg-green-900 transition text-xs">
             📄 Generate Report
@@ -418,7 +349,7 @@ function App() {
             📂 Save Session
           </button>
           <button className="bg-black border border-green-600 py-2 hover:bg-green-900 transition text-xs">
-            🔐 Lock System
+            History
           </button>
         </div>
 
