@@ -5,6 +5,7 @@
 import { useState, useRef, useEffect } from 'react';
 import drawBoxes from './utils/drawBoxes';
 import captureAndDetect from './utils/captureAndDetect';
+import detectFrameFromVideo from './utils/detectFrameFromVideo';
 import './App.css';
 
 function App() {
@@ -26,7 +27,9 @@ function App() {
   useEffect(() => {
     return () => {
       if (videoRef.current) {
-        videoRef.current.removeEventListener('timeupdate', detectFrameFromVideo);
+        videoRef.current.removeEventListener('timeupdate', () => {
+          detectFrameFromVideo({imageRef,videoRef, activeFeed, canvasRef, isDetecting, setDetections, drawBoxes, detections})
+        });
       }
       if (videoStream.current) {
         videoStream.current.getTracks().forEach(t => t.stop());
@@ -126,54 +129,6 @@ function App() {
     }
   };
 
-  const detectFrameFromVideo = async () => {
-    if (isDetecting.current) return;
-    isDetecting.current = true;
-
-    const video = videoRef.current;
-    const displayCanvas = canvasRef.current; // For drawing boxes only
-    if (!video || !displayCanvas) {
-      isDetecting.current = false;
-      return;
-    }
-
-    // ✅ Step 1: Use a temporary canvas to extract the frame for detection
-    const tempCanvas = document.createElement('canvas');
-    const tempCtx = tempCanvas.getContext('2d');
-    tempCanvas.width = video.videoWidth;
-    tempCanvas.height = video.videoHeight;
-    tempCtx.drawImage(video, 0, 0);
-
-    // ✅ Step 2: Send frame to backend
-    tempCanvas.toBlob(async (blob) => {
-      const formData = new FormData();
-      formData.append("file", blob, "frame.jpg");
-
-      try {
-        const response = await fetch("http://127.0.0.1:8000/detect/", {
-          method: "POST",
-          body: formData,
-        });
-
-        if (response.ok) {
-          const data = await response.json();
-          setDetections(data.clothes_detected);
-          requestAnimationFrame(() => 
-            drawBoxes({ canvasRef, imageRef, videoRef, activeFeed, detections })    // Ensure DOM is ready
-          );
-          
-
-          // ✅ Step 3: Only draw boxes — no video redraw
-          drawBoxes({ canvasRef, imageRef, videoRef, activeFeed, detections });
-        }
-      } catch (err) {
-        console.error("Detection error:", err);
-      } finally {
-        isDetecting.current = false;
-      }
-    }, "image/jpeg", 0.7);
-  };
-
   return (
     <div className="p-0">
       <h1 className="bg-black text-green-400 font-mono text-3xl mb-6 border-b-2 pb-2 border-green-400 tracking-widest uppercase w-auto">
@@ -212,7 +167,9 @@ function App() {
                 className="w-full h-auto"
                 onLoadedMetadata={(e) => {
                   e.target.play();
-                  e.target.addEventListener('timeupdate', detectFrameFromVideo);
+                  e.target.addEventListener('timeupdate', () => {
+                    detectFrameFromVideo({imageRef, videoRef, activeFeed,canvasRef, isDetecting, setDetections, drawBoxes, detections })
+                  });
                 }}
                 onEnded={() => (isDetecting.current = false)}
                 playsInline
