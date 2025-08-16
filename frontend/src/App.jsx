@@ -26,6 +26,8 @@ function App() {
   const videoRef = useRef(null);
   const videoStream = useRef(null);
   const isDetecting = useRef(false); // FPS limiter
+  const hiddenCanvasRef = useRef(null);
+
   
 
   useEffect(() => {
@@ -144,10 +146,11 @@ function App() {
   const captureAndDetectLoop = async () => {
     console.log("7. captureAndDetectLoop running");
     const video = videoRef.current;
-    const canvas = canvasRef.current;
+    const hiddenCanvas = hiddenCanvasRef.current;
+    const overlayCanvas = canvasRef.current;
 
-    if (!video || !canvas || !video.srcObject || video.readyState < 3) {
-      console.warn("Video not ready", { video: !!video, canvas: !!canvas, srcObject: !!video?.srcObject, readyState: video?.readyState });
+    if (!video || !hiddenCanvas || overlayCanvas || !video.srcObject || video.readyState < 3) {
+      console.warn("Video not ready", { video: !!video, canvas: !!hiddenCanvas, srcObject: !!video?.srcObject, readyState: video?.readyState });
       // Not ready, retry
       requestAnimationFrame(captureAndDetectLoop);
       return;
@@ -161,12 +164,12 @@ function App() {
     isDetecting.current = true;
     console.log("8. Capturing frame from webcam");
 
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    const ctx = canvas.getContext("2d");
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    hiddenCanvas.width = video.videoWidth;
+    hiddenCanvas.height = video.videoHeight;
+    const ctx = hiddenCanvas.getContext("2d");
+    ctx.drawImage(video, 0, 0, hiddenCanvas.width, hiddenCanvas.height);
 
-    canvas.toBlob(async (blob) => {
+    hiddenCanvas.toBlob(async (blob) => {
       if (!blob) {
         console.warn("toBlob returned null");
         isDetecting.current = false;
@@ -189,7 +192,7 @@ function App() {
           const data = await response.json();
           console.log("10. Detection result:", data);
           setDetections(data.clothes_detected);
-          drawBoxes({ canvasRef, imageRef, videoRef, activeFeed, detections });
+          drawBoxes({ canvasRef: overlayCanvas, imageRef, videoRef, activeFeed, detections: data.clothes_detected });
         } else{
           console.error("Detection failed:", await response.text());
         }
@@ -228,6 +231,7 @@ function App() {
           imageRef={imageRef}
           videoRef={videoRef}
           canvasRef={canvasRef}
+          hiddenCanvasRef={hiddenCanvasRef}
           detections={detections}
           drawBoxes={drawBoxes}
           detectFrameFromVideo={detectFrameFromVideo}
