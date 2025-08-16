@@ -43,13 +43,13 @@ function App() {
   }, [imageURL]);
 
   useEffect(() => {
-    if (detections.length > 0) {
-      requestAnimationFrame(() => 
+    if ((activeFeed === "image" || activeFeed === "video") && detections.length > 0) {
+      requestAnimationFrame(() =>
         drawBoxes({ canvasRef, imageRef, videoRef, activeFeed, detections })
       );
-
     }
-  }, [detections]);
+  }, [detections, activeFeed]);
+
 
   const startWebcam = () => {
     console.log("1. startWebcam called");
@@ -191,7 +191,7 @@ function App() {
           const data = await response.json();
           console.log("10. Detection result:", data);
           setDetections(data.clothes_detected);
-          //drawBoxes({ canvasRef: canvasRef, imageRef, videoRef, activeFeed, detections: data.clothes_detected });
+          drawBoxes({ canvasRef, imageRef, videoRef, activeFeed, detections: data.clothes_detected });
         } else{
           console.error("Detection failed:", await response.text());
         }
@@ -204,7 +204,6 @@ function App() {
       requestAnimationFrame(captureAndDetectLoop);
     }, "image/jpeg", 0.7);
   };
-
 
   return (
     <div className="p-0">
