@@ -18,7 +18,6 @@ function App() {
 
   // State to store detection results: [{ class, bbox, confidence }, ...]
   const [detections, setDetections] = useState([]);
-  const [webcamRequested, setWebcamRequested] = useState(false);
   const [activeFeed, setActiveFeed] = useState(null); // 'image', 'webcam', 'video'
 
   // References to DOM elements: canvas for drawing, img for size measurement
@@ -28,12 +27,6 @@ function App() {
   const videoStream = useRef(null);
   const isDetecting = useRef(false); // FPS limiter
   
-
-  useEffect(() => {
-    if (activeFeed === 'webcam' && webcamRequested && videoRef.current) {
-      setupWebcamStream();
-    }
-  }, [activeFeed, webcamRequested]);
 
   useEffect(() => {
     return () => {
@@ -57,37 +50,44 @@ function App() {
   }, [detections]);
 
   const startWebcam = () => {
-  setActiveFeed('webcam');
-  setWebcamRequested(true); // Just set a flag
-  setDetections([]);
-  isDetecting.current = false;
-};
+    console.log("1. startWebcam called");
+    setActiveFeed('webcam');
+    setWebcamRequested(true); // Just set a flag
+    setDetections([]);
+    isDetecting.current = false;
+  };
 
   const setupWebcamStream = async () => {
-  const video = videoRef.current;
-  if (!video) return;
+    console.log("3. setupWebcamStream running");
+    const video = videoRef.current;
+    if (!video) {
+      console.warn("Video element not ready");
+      return;
+    }
 
-  // Stop existing stream
-  if (videoStream.current) {
-    videoStream.current.getTracks().forEach(t => t.stop());
-  }
+    // Stop existing stream
+    if (videoStream.current) {
+      videoStream.current.getTracks().forEach(t => t.stop());
+    }
 
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-    videoStream.current = stream;
-    video.srcObject = stream;
+    try {
+      console.log("4. Requesting webcam access...");
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      console.log("5. Webcam access granted", stream);
+      videoStream.current = stream;
+      video.srcObject = stream;
 
-    video.onloadedmetadata = () => {
-      video.play().catch(err => console.error("Play failed:", err));
-      requestAnimationFrame(captureAndDetectLoop);
-    };
-  } catch (err) {
-    console.error("Webcam access denied:", err);
-    alert("Unable to access camera. Check permissions.");
-    setActiveFeed(null);
-    setWebcamRequested(false);
-  }
-};
+      video.onloadedmetadata = () => {
+        console.log("6. Metadata loaded, playing video...");
+        video.play().catch(err => console.error("Play failed:", err));
+        requestAnimationFrame(captureAndDetectLoop);
+      };
+    } catch (err) {
+      console.error("Webcam access denied:", err);
+      alert("Unable to access camera. Check permissions.");
+      setActiveFeed(null);
+    }
+  };
 
   /**
    * Handles file upload:
@@ -142,57 +142,66 @@ function App() {
   
 
   const captureAndDetectLoop = async () => {
-  const video = videoRef.current;
-  const canvas = canvasRef.current;
+    console.log("7. captureAndDetectLoop running");
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
 
-  if (!video || !canvas || !video.srcObject || !video.readyState >= 3) {
-    // Not ready, retry
-    requestAnimationFrame(captureAndDetectLoop);
-    return;
-  }
-
-  if (isDetecting.current) {
-    requestAnimationFrame(captureAndDetectLoop);
-    return;
-  }
-
-  isDetecting.current = true;
-
-  canvas.width = video.videoWidth;
-  canvas.height = video.videoHeight;
-  const ctx = canvas.getContext("2d");
-  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-  canvas.toBlob(async (blob) => {
-    if (!blob) {
-      isDetecting.current = false;
+    if (!video || !canvas || !video.srcObject || video.readyState < 3) {
+      console.warn("Video not ready", { video: !!video, canvas: !!canvas, srcObject: !!video?.srcObject, readyState: video?.readyState });
+      // Not ready, retry
       requestAnimationFrame(captureAndDetectLoop);
       return;
     }
 
-    const formData = new FormData();
-    formData.append("file", blob, "webcam-frame.jpg");
-
-    try {
-      const response = await fetch("http://127.0.0.1:8000/detect/", {
-        method: "POST",
-        body: formData,
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setDetections(data.clothes_detected);
-        drawBoxes({ canvasRef, imageRef, videoRef, activeFeed, detections });
-      }
-    } catch (err) {
-      console.error("Webcam detection error:", err);
-    } finally {
-      isDetecting.current = false;
+    if (isDetecting.current) {
+      requestAnimationFrame(captureAndDetectLoop);
+      return;
     }
 
-    requestAnimationFrame(captureAndDetectLoop);
-  }, "image/jpeg", 0.7);
-};
+    isDetecting.current = true;
+    console.log("8. Capturing frame from webcam");
+
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    canvas.toBlob(async (blob) => {
+      if (!blob) {
+        console.warn("toBlob returned null");
+        isDetecting.current = false;
+        requestAnimationFrame(captureAndDetectLoop);
+        return;
+      }
+
+      console.log("9. Frame captured, sending to backend", blob);
+      const formData = new FormData();
+      formData.append("file", blob, "webcam-frame.jpg");
+      
+
+      try {
+        const response = await fetch("http://127.0.0.1:8000/detect/", {
+          method: "POST",
+          body: formData,
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          console.log("10. Detection result:", data);
+          setDetections(data.clothes_detected);
+          drawBoxes({ canvasRef, imageRef, videoRef, activeFeed, detections });
+        } else{
+          console.error("Detection failed:", await response.text());
+        }
+      } catch (err) {
+        console.error("Webcam detection error:", err);
+      } finally {
+        isDetecting.current = false;
+      }
+
+      requestAnimationFrame(captureAndDetectLoop);
+    }, "image/jpeg", 0.7);
+  };
 
 
   return (
@@ -224,7 +233,9 @@ function App() {
           detectFrameFromVideo={detectFrameFromVideo}
           isDetecting={isDetecting}
           setDetections={setDetections}
+          setupWebcamStream={setupWebcamStream}   
           onWebcamStreamStart={() => {
+            console.log("Starting detection loop");
             requestAnimationFrame(captureAndDetectLoop);
           }}
         />

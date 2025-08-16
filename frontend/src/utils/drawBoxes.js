@@ -29,6 +29,8 @@ export default function drawBoxes({
     return;
   }
 
+  console.log("drawBoxes called:", { activeFeed, detections: detections.length, canvas: !!canvas, img: !!img });
+
   const displayWidth = img.clientWidth || img.width || 640;
   const displayHeight = img.clientHeight || img.height || 480;
 
