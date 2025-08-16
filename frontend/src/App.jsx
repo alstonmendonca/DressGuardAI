@@ -54,7 +54,6 @@ function App() {
   const startWebcam = () => {
     console.log("1. startWebcam called");
     setActiveFeed('webcam');
-    setWebcamRequested(true); // Just set a flag
     setDetections([]);
     isDetecting.current = false;
   };
@@ -149,7 +148,7 @@ function App() {
     const hiddenCanvas = hiddenCanvasRef.current;
     const overlayCanvas = canvasRef.current;
 
-    if (!video || !hiddenCanvas || overlayCanvas || !video.srcObject || video.readyState < 3) {
+    if (!video || !hiddenCanvas || !overlayCanvas || !video.srcObject || video.readyState < 3) {
       console.warn("Video not ready", { video: !!video, canvas: !!hiddenCanvas, srcObject: !!video?.srcObject, readyState: video?.readyState });
       // Not ready, retry
       requestAnimationFrame(captureAndDetectLoop);
@@ -192,7 +191,7 @@ function App() {
           const data = await response.json();
           console.log("10. Detection result:", data);
           setDetections(data.clothes_detected);
-          drawBoxes({ canvasRef: overlayCanvas, imageRef, videoRef, activeFeed, detections: data.clothes_detected });
+          //drawBoxes({ canvasRef: canvasRef, imageRef, videoRef, activeFeed, detections: data.clothes_detected });
         } else{
           console.error("Detection failed:", await response.text());
         }
