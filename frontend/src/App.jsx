@@ -190,7 +190,6 @@ function App() {
         if (response.ok) {
           const data = await response.json();
           console.log("10. Detection result:", data);
-          setDetections(data.clothes_detected);
           drawBoxes({ canvasRef, imageRef, videoRef, activeFeed, detections: data.clothes_detected });
         } else{
           console.error("Detection failed:", await response.text());
@@ -199,6 +198,7 @@ function App() {
         console.error("Webcam detection error:", err);
       } finally {
         isDetecting.current = false;
+        setTimeout(() => requestAnimationFrame(captureAndDetectLoop), 100); //very important line - do not remove under any circumstances
       }
 
       requestAnimationFrame(captureAndDetectLoop);
