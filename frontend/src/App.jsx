@@ -58,6 +58,30 @@ function App() {
     isDetecting.current = false;
   };
 
+  const stopWebcam = () => {
+    console.log("Stopping webcam...");
+    
+    // Stop the detection loop
+    isDetecting.current = true; // This will prevent new detections
+    
+    // Stop the video stream
+    if (videoStream.current) {
+      videoStream.current.getTracks().forEach(track => track.stop());
+      videoStream.current = null;
+    }
+    
+    // Clear the video element
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+    
+    // Reset state
+    setActiveFeed(null);
+    setDetections([]);
+    
+    console.log("Webcam stopped");
+  };
+
   const setupWebcamStream = async () => {
     console.log("3. setupWebcamStream running");
     const video = videoRef.current;
@@ -143,7 +167,12 @@ function App() {
   
 
   const captureAndDetectLoop = async () => {
-    console.log("7. captureAndDetectLoop running");
+
+    if (!videoStream.current) {
+      console.log("Detection loop stopped - no active stream");
+      return;
+    }
+    
     const video = videoRef.current;
     const hiddenCanvas = hiddenCanvasRef.current;
     const overlayCanvas = canvasRef.current;
@@ -246,7 +275,11 @@ function App() {
         <DetectionList detections={detections} />
 
         {/* === PANEL 4: Allows to choose from different camera feeds*/}
-        <CameraPanel onStartWebcam={startWebcam}/>
+        <CameraPanel 
+          onStartWebcam={startWebcam}
+          onStopWebcam={stopWebcam}
+          isWebcamActive={activeFeed === 'webcam'}
+        />
 
         {/* === PANEL 5: System Status (Bottom Center) === */}
         <StatusPanel/>
