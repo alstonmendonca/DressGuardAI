@@ -1,7 +1,3 @@
-// App.jsx - Frontend for DressGuard AI
-// This component handles image upload, sends it to the backend for YOLOv8 detection,
-// and draws bounding boxes on a canvas over the image.
-// Uses React hooks: useState, useRef, useEffect for state and DOM manipulation.
 import { useState, useRef, useEffect } from 'react';
 import drawBoxes from './utils/drawBoxes';
 import detectFrameFromVideo from './utils/detectFrameFromVideo';
@@ -11,6 +7,7 @@ import StatusPanel from './components/StatusPanel';
 import ActionsPanel from './components/ActionsPanel';
 import DetectionList from './components/DetectionList';
 import MainFeed from "./components/MainFeed";
+import ModelPanel from './components/ModelPanel';
 
 function App() {
   // State to store the uploaded image as a blob URL
@@ -286,6 +283,8 @@ function App() {
 
         {/* === PANEL 6: Settings & Export (Bottom Right) === */}
         <ActionsPanel/>
+
+        <ModelPanel/>
 
       </div>
     </div>
