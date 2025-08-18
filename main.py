@@ -4,6 +4,7 @@ import numpy as np
 import cv2
 from detector import DressDetector
 from utils.compliance import is_compliant
+from fastapi import Body
 
 app = FastAPI()
 detector = DressDetector()
@@ -17,10 +18,14 @@ app.add_middleware(
 )
 
 @app.post("/detect/")
-async def detect_dress(file: UploadFile = File(...)):
+async def detect_dress(file: UploadFile = File(...), model: str = None):
     content = await file.read()
     nparr = np.frombuffer(content, np.uint8)
     image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+
+    # Switch model if specified
+    if model and model != detector.current_model:
+        detector.switch_model(model)
 
     detected_clothes = detector.detect(image)
     h, w = image.shape[:2]  # original dimensions
@@ -32,5 +37,19 @@ async def detect_dress(file: UploadFile = File(...)):
         "image_width": w,
         "image_height": h,
         "compliant": compliant,
-        "non_compliant_items": non_compliant_items
+        "non_compliant_items": non_compliant_items,
+        "model_used": detector.current_model  # Return which model was used
     }
+
+@app.post("/switch-model/")
+async def switch_model(model_name: str = Body(..., embed=True)):
+    success = detector.switch_model(model_name.lower())
+    return {
+        "success": success,
+        "current_model": detector.current_model,
+        "message": f"Switched to {detector.current_model}" if success else "Model switch failed"
+    }
+
+@app.get("/current-model/")
+async def get_current_model():
+    return {"current_model": detector.current_model}

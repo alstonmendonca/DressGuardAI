@@ -1,13 +1,42 @@
-# detector.py
 from ultralytics import YOLO
 import cv2
 import numpy as np
 
+MODEL_PATHS = {
+    "best": "models/best.pt",          # Your primary clothing detection model
+    "yolov8n": "models/yolov8n.pt"    # Your secondary YOLOv8 nano clothing detection model
+}
+
 class DressDetector:
     def __init__(self):
-        self.model = YOLO("models/best.pt")  # Load default YOLOv8 model hehehehe
+        # Default to your best clothing detection model
+        self.current_model = "best"
+        self.model = YOLO(MODEL_PATHS[self.current_model])
+        self.clothing_classes = {
+            "best": self._get_clothing_classes(),       # Initialize for first model
+            "yolov8n": self._get_clothing_classes()     # Will be updated after model load
+        }
+    
+    def _get_clothing_classes(self):
+        """Helper method to get clothing classes from current model"""
+        return set(self.model.names.values()) if hasattr(self.model, 'names') else set()
 
+    def switch_model(self, model_name: str):
+        """Switch to specified clothing detection model"""
+        if model_name in MODEL_PATHS:
+            try:
+                self.current_model = model_name
+                self.model = YOLO(MODEL_PATHS[model_name])
+                # Update clothing classes for the new model
+                self.clothing_classes[model_name] = self._get_clothing_classes()
+                return True
+            except Exception as e:
+                print(f"Error loading model {model_name}: {e}")
+                return False
+        return False
+    
     def detect(self, image: np.ndarray):
+        """Detect clothing items in image using current model"""
         results = self.model(image)
         detections = results[0]
 
@@ -18,10 +47,16 @@ class DressDetector:
             bbox = box.xyxy[0].tolist()
             confidence = float(box.conf[0])
 
+            # Only include if it's a clothing item (should be all for your specialized models)
             clothes.append({
                 "class": class_name,
                 "bbox": bbox,
-                "confidence": confidence
+                "confidence": confidence,
+                "model": self.current_model
             })
 
         return clothes
+
+    def get_available_models(self):
+        """Return list of available clothing detection models"""
+        return list(MODEL_PATHS.keys())

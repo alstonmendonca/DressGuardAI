@@ -9,6 +9,7 @@ export default function detectFrameFromVideo({
   setDetections,
   drawBoxes,
   detections,
+  currentModel, 
 }) {
   if (isDetecting.current) return;
   isDetecting.current = true;
@@ -53,6 +54,7 @@ export default function detectFrameFromVideo({
 
       const formData = new FormData();
       formData.append("file", blob, "frame.jpg"); // ✅ Now safe
+      formData.append("model", currentModel); // Add current model to request
 
       try {
         const response = await fetch("http://127.0.0.1:8000/detect/", {

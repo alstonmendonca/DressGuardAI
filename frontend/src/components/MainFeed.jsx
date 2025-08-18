@@ -13,8 +13,9 @@ export default function MainFeed({
   detectFrameFromVideo,
   isDetecting,
   setDetections,
-  setupWebcamStream,   // 👈 pass this from App.jsx
+  setupWebcamStream,   
   onWebcamStreamStart,
+  currentModel, // Add currentModel to props
 }) {
   const [isStreaming, setIsStreaming] = useState(false);
 
@@ -60,6 +61,7 @@ export default function MainFeed({
                   setDetections,
                   drawBoxes,
                   detections,
+                  currentModel, // Add currentModel to props
                 });
               });
             }}

@@ -17,6 +17,9 @@ function App() {
   const [detections, setDetections] = useState([]);
   const [activeFeed, setActiveFeed] = useState(null); // 'image', 'webcam', 'video'
 
+  const [currentModel, setCurrentModel] = useState("best"); // Default to your best model
+  const [availableModels, setAvailableModels] = useState([]); // Will store available models
+
   // References to DOM elements: canvas for drawing, img for size measurement
   const canvasRef = useRef(null);
   const imageRef = useRef(null);
@@ -46,6 +49,23 @@ function App() {
       );
     }
   }, [detections, activeFeed]);
+
+  useEffect(() => {
+    // Fetch available models when component mounts
+    const fetchModels = async () => {
+      try {
+        const response = await fetch("http://127.0.0.1:8000/current-model/");
+        if (response.ok) {
+          const data = await response.json();
+          setCurrentModel(data.current_model);
+        }
+      } catch (err) {
+        console.error("Failed to fetch current model:", err);
+      }
+    };
+    
+    fetchModels();
+  }, []);
 
 
   const startWebcam = () => {
@@ -131,6 +151,7 @@ function App() {
 
     const formData = new FormData();
     formData.append("file", file);
+    formData.append("model", currentModel);  // Add current model to request
 
     try {
       const response = await fetch("http://127.0.0.1:8000/detect/", {
@@ -147,13 +168,9 @@ function App() {
     }
   } 
   else if (file.type.startsWith("video/")) {
-    // ✅ Step 1: Set activeFeed FIRST
     setActiveFeed('video');
     setImageURL(url);
     setDetections([]);
-
-    // ✅ Step 2: Use useEffect or wait for render
-    // We'll handle src and event listener in JSX via `onLoadedMetadata`
   }
 };
 
@@ -202,9 +219,9 @@ function App() {
         return;
       }
 
-      console.log("9. Frame captured, sending to backend", blob);
       const formData = new FormData();
       formData.append("file", blob, "webcam-frame.jpg");
+      formData.append("model", currentModel);  // Add current model to request
       
 
       try {
@@ -217,19 +234,51 @@ function App() {
           const data = await response.json();
           console.log("10. Detection result:", data);
           drawBoxes({ canvasRef, imageRef, videoRef, activeFeed, detections: data.clothes_detected });
-        } else{
-          console.error("Detection failed:", await response.text());
         }
       } catch (err) {
         console.error("Webcam detection error:", err);
       } finally {
         isDetecting.current = false;
-        setTimeout(() => requestAnimationFrame(captureAndDetectLoop), 100); //very important line - do not remove under any circumstances
+        setTimeout(() => requestAnimationFrame(captureAndDetectLoop), 100); 
       }
 
       requestAnimationFrame(captureAndDetectLoop);
     }, "image/jpeg", 0.7);
   };
+
+  const handleModelChange = async (modelName) => {
+  try {
+    // Convert to lowercase and ensure it matches your MODEL_PATHS
+    const modelToSend = modelName.toLowerCase();
+    
+    const response = await fetch("http://127.0.0.1:8000/switch-model/", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ model_name: modelToSend }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      console.error("Switch failed:", errorData);
+      return;
+    }
+
+    const data = await response.json();
+    setCurrentModel(data.current_model);
+    
+    // Refresh detection if active
+    if (activeFeed === 'image' && imageURL) {
+      const fileInput = document.querySelector('input[type="file"]');
+      if (fileInput?.files[0]) {
+        handleFileChange({ target: { files: [fileInput.files[0]] } });
+      }
+    }
+  } catch (err) {
+    console.error("Model switch error:", err);
+  }
+};
 
   return (
     <div className="p-0">
@@ -279,12 +328,15 @@ function App() {
         />
 
         {/* === PANEL 5: System Status (Bottom Center) === */}
-        <StatusPanel/>
+        <StatusPanel currentModel={currentModel}/>
 
         {/* === PANEL 6: Settings & Export (Bottom Right) === */}
         <ActionsPanel/>
 
-        <ModelPanel/>
+        <ModelPanel 
+          currentModel={currentModel}
+          onModelChange={handleModelChange}
+        />
 
       </div>
     </div>
