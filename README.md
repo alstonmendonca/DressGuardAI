@@ -15,9 +15,15 @@
 > ⚠️ The canvas must match the **rendered image size**, not the original.
 
 
+pre-requisites:
+1) Node.js and npm
+2) python and pip
+3) configure  user.name and user.email on git
+4) make sure you are added as collaborator to the project
 
-After pulling the code from github, pleas make sure to:
+After pulling the code from github, please make sure to:
 1) run 'npm install' in the root directory as well inside the frontend folder
 2) run 'pip install fastapi uvicorn' in the root directory
 3) Create a folder called 'models' in the root directory. Inside the folder add all your pytorch(.pt) models (YOLO models)
 4) Adjust the paths of the models in detector.py and config.py
+5) Double Check the .gitignore file before making changes
