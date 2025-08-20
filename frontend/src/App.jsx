@@ -286,13 +286,21 @@ function App() {
         DressGuard AI
       </h1>
 
-      {/* File input */}
-      <input
-        type="file"
-        accept="image/*,video/*"  
-        onChange={handleFileChange}
-        className="mb-6 bg-green-900 text-green-300 border border-green-400 p-2 rounded hover:bg-green-800 transition-all"
-      />
+      <div className="flex items-center justify-center gap-4 mb-6">
+        {/* File input */}
+        <input
+          type="file"
+          accept="image/*,video/*"  
+          onChange={handleFileChange}
+          className="bg-green-900 text-green-300 border border-green-400 p-2 rounded hover:bg-green-800 transition-all cursor-pointer"
+        />
+
+        {/* Current model display */}
+        <div className="text-green-300 p-2 w-fit">
+          Current Model: <span className="font-bold">{currentModel}</span>
+        </div>
+      </div>
+      
 
       {/* Main Grid: 3 columns */}
       <div className="min-h-screen bg-black text-green-400 font-mono grid grid-cols-3 gap-2">
