@@ -1,4 +1,4 @@
-// src/utils/detectFrameFromVideo.js
+import { logComplianceResults } from './complianceLogger';
 
 export default function detectFrameFromVideo({
   imageRef,
@@ -65,6 +65,7 @@ export default function detectFrameFromVideo({
         if (response.ok) {
           const data = await response.json();
           setDetections(data.clothes_detected);
+          logComplianceResults(data, "Video Frame");
 
           // Draw boxes after detection
           requestAnimationFrame(() => {

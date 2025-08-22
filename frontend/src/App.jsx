@@ -8,6 +8,7 @@ import ActionsPanel from './components/ActionsPanel';
 import DetectionList from './components/DetectionList';
 import MainFeed from "./components/MainFeed";
 import ModelPanel from './components/ModelPanel';
+import { logComplianceResults } from './utils/complianceLogger';
 
 function App() {
   // State to store the uploaded image as a blob URL
@@ -27,6 +28,10 @@ function App() {
   const videoStream = useRef(null);
   const isDetecting = useRef(false); // FPS limiter
   const hiddenCanvasRef = useRef(null);
+
+  // Add this throttle variable at the top of your component
+  const lastWebcamLogTime = useRef(0);
+  const WEB_CAM_LOG_INTERVAL = 3000; // Log every 3 seconds
 
   
 
@@ -151,7 +156,7 @@ function App() {
 
     const formData = new FormData();
     formData.append("file", file);
-    formData.append("model", currentModel);  // Add current model to request
+    formData.append("model", currentModel);
 
     try {
       const response = await fetch("http://127.0.0.1:8000/detect/", {
@@ -162,6 +167,7 @@ function App() {
       if (response.ok) {
         const data = await response.json();
         setDetections(data.clothes_detected);
+        logComplianceResults(data, "Image");
       }
     } catch (err) {
       console.error("Detection error:", err);
@@ -204,7 +210,6 @@ function App() {
     }
 
     isDetecting.current = true;
-    console.log("8. Capturing frame from webcam");
 
     hiddenCanvas.width = video.videoWidth;
     hiddenCanvas.height = video.videoHeight;
@@ -232,8 +237,13 @@ function App() {
 
         if (response.ok) {
           const data = await response.json();
-          console.log("10. Detection result:", data);
           drawBoxes({ canvasRef, imageRef, videoRef, activeFeed, detections: data.clothes_detected });
+          // ✅ THROTTLED LOGGING FOR WEBCAM
+          const now = Date.now();
+          if (now - lastWebcamLogTime.current > WEB_CAM_LOG_INTERVAL) {
+            logComplianceResults(data, "Webcam");
+            lastWebcamLogTime.current = now;
+          }
         }
       } catch (err) {
         console.error("Webcam detection error:", err);
