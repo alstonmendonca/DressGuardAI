@@ -14,19 +14,22 @@ MODELS = {
 
 DEFAULT_MODEL = "best"  # Key from MODELS dictionary
 
-# Compliance Configuration
+# Compliance Configuration - REMOVE t-shirt and shorts
 COMPLIANT_CLOTHES = {
-    "full sleeve shirt", "half sleeve shirt", "t-shirt", 
-    "pants", "shorts", "kurthi", "id card"
+    "full sleeve shirt", "half sleeve shirt", 
+    "pants", "kurthi", "id card"
 }
 
-# Alternative spellings and variations
+# Explicitly non-compliant items
+NON_COMPLIANT_CLOTHES = {
+    "t-shirt", "shorts", "tshirt", "tee shirt", "t shirt", "short pants"
+}
+
+# Alternative spellings and variations (only for compliant items)
 COMPLIANT_VARIANTS = {
     "full sleeve shirt": ["full sleeves shirt", "full-sleeve shirt", "long sleeve shirt"],
     "half sleeve shirt": ["half sleeves shirt", "half-sleeve shirt", "short sleeve shirt"],
-    "t-shirt": ["tshirt", "tee shirt", "t shirt"],
     "pants": ["trousers", "formal pants"],
-    "shorts": ["short pants"],
     "kurthi": ["kurti", "kurta"],
     "id card": ["id", "identity card", "badge"]
 }

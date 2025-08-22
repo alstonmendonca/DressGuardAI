@@ -5,9 +5,9 @@ export const logComplianceResults = (data, source = "Detection") => {
   console.log("Model used:", data.model_used);
   
   if (data.compliant) {
-    console.log("🎉 All clothing items are compliant!");
+    console.log("✅✅✅ All clothing items are compliant!");
   } else {
-    console.log("⚠️ Non-compliant items detected:");
+    console.log("❌❌❌ Non-compliant items detected:");
     data.non_compliant_items.forEach(item => {
       console.log(`   - ${item}`);
     });

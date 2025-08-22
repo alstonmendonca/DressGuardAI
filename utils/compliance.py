@@ -1,3 +1,5 @@
+from config import COMPLIANT_CLOTHES, COMPLIANT_VARIANTS, NON_COMPLIANT_CLOTHES, COMPLIANCE_RULES
+
 def is_compliant(detected_clothes):
     """
     Check if detected clothing items are compliant based on predefined rules.
@@ -8,37 +10,15 @@ def is_compliant(detected_clothes):
     Returns:
         tuple: (is_compliant, non_compliant_items)
     """
-
-    # Compliance Configuration - REMOVE t-shirt and shorts
-    COMPLIANT_CLOTHES = {
-        "full sleeve shirt", "half sleeve shirt", 
-        "pants", "kurthi", "id card"
-    }
-
-    # Alternative spellings and variations - REMOVE t-shirt and shorts entries
-    COMPLIANT_VARIANTS = {
-        "full sleeve shirt": ["full sleeves shirt", "full-sleeve shirt", "long sleeve shirt"],
-        "half sleeve shirt": ["half sleeves shirt", "half-sleeve shirt", "short sleeve shirt"],
-        "pants": ["trousers", "formal pants"],
-        "kurthi": ["kurti", "kurta"],
-        "id card": ["id", "identity card", "badge"]
-    }
-
-    # Explicitly non-compliant items (optional)
-    NON_COMPLIANT_CLOTHES = {
-        "t-shirt", "shorts", "tshirt", "tee shirt", "t shirt", "short pants"
-    }
-
-    # Compliance Rules
-    COMPLIANCE_RULES = {
-        "min_confidence": 0.5,  # Minimum confidence threshold for detections
-        "require_all_compliant": True  # All detected items must be compliant
-    }
     
     non_compliant_items = []
     detected_classes = set()
     
     for item in detected_clothes:
+        # Apply confidence threshold from rules
+        if "confidence" in item and item["confidence"] < COMPLIANCE_RULES["min_confidence"]:
+            continue  # Skip low-confidence detections
+            
         class_name = item["class"].lower().strip()
         detected_classes.add(class_name)
         
