@@ -14,17 +14,25 @@ MODELS = {
 
 DEFAULT_MODEL = "best"  # Key from MODELS dictionary
 
-# Clothing Configuration
-ALLOWED_CLOTHES = {
-    "shirt", 
-    "formal shirt", 
-    "formal pants", 
-    "trousers", 
-    "formal shoes"
+# Compliance Configuration
+COMPLIANT_CLOTHES = {
+    "full sleeve shirt", "half sleeve shirt", "t-shirt", 
+    "pants", "shorts", "kurthi", "id card"
 }
 
-# Compliance Rules (optional - you could add specific rules here)
+# Alternative spellings and variations
+COMPLIANT_VARIANTS = {
+    "full sleeve shirt": ["full sleeves shirt", "full-sleeve shirt", "long sleeve shirt"],
+    "half sleeve shirt": ["half sleeves shirt", "half-sleeve shirt", "short sleeve shirt"],
+    "t-shirt": ["tshirt", "tee shirt", "t shirt"],
+    "pants": ["trousers", "formal pants"],
+    "shorts": ["short pants"],
+    "kurthi": ["kurti", "kurta"],
+    "id card": ["id", "identity card", "badge"]
+}
+
+# Compliance Rules
 COMPLIANCE_RULES = {
     "min_confidence": 0.5,  # Minimum confidence threshold for detections
-    "require_formal_shoes": True  # Example rule
+    "require_all_compliant": True  # All detected items must be compliant
 }
