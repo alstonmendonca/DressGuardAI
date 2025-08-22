@@ -28,6 +28,15 @@ export default function ModelPanel({ currentModel, onModelChange }) {
         }
     ];
 
+    const handleModelClick = (modelId) => {
+        if (models.find(m => m.id === modelId)?.available) {
+            // Scroll to top first
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+            // Then trigger the model change
+            onModelChange(modelId);
+        }
+    };
+
     return (
         <div className="col-span-3 bg-green-950 border border-green-500 p-4 rounded flex flex-col gap-3">
             <h3 className="text-center font-bold text-green-300 mb-4">AI Model Selection</h3>
@@ -42,7 +51,7 @@ export default function ModelPanel({ currentModel, onModelChange }) {
                                     ? 'border-green-600 hover:bg-green-900' 
                                     : 'border-gray-600 text-gray-500 cursor-not-allowed'
                         } py-2 transition text-xs text-center relative group`}
-                        onClick={() => model.available && onModelChange(model.id)}
+                        onClick={() => handleModelClick(model.id)}
                         disabled={!model.available}
                         title={model.description}
                     >
