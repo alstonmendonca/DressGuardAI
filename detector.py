@@ -1,20 +1,15 @@
 from ultralytics import YOLO
 import cv2
 import numpy as np
-
-MODEL_PATHS = {
-    "best": "models/best.pt",          # Your primary clothing detection model
-    "yolov8n": "models/yolov8n.pt"    # Your secondary YOLOv8 nano clothing detection model
-}
+from config import MODELS, DEFAULT_MODEL
 
 class DressDetector:
     def __init__(self):
         # Default to your best clothing detection model
-        self.current_model = "best"
-        self.model = YOLO(MODEL_PATHS[self.current_model])
+        self.current_model = DEFAULT_MODEL
+        self.model = YOLO(MODELS[self.current_model]["path"])
         self.clothing_classes = {
-            "best": self._get_clothing_classes(),       # Initialize for first model
-            "yolov8n": self._get_clothing_classes()     # Will be updated after model load
+            self.current_model: self._get_clothing_classes()
         }
     
     def _get_clothing_classes(self):
@@ -23,10 +18,10 @@ class DressDetector:
 
     def switch_model(self, model_name: str):
         """Switch to specified clothing detection model"""
-        if model_name in MODEL_PATHS:
+        if model_name in MODELS:
             try:
                 self.current_model = model_name
-                self.model = YOLO(MODEL_PATHS[model_name])
+                self.model = YOLO(MODELS[model_name]["path"])
                 # Update clothing classes for the new model
                 self.clothing_classes[model_name] = self._get_clothing_classes()
                 return True
@@ -59,4 +54,4 @@ class DressDetector:
 
     def get_available_models(self):
         """Return list of available clothing detection models"""
-        return list(MODEL_PATHS.keys())
+        return list(MODELS.keys())
