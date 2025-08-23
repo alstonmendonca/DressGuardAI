@@ -27,3 +27,9 @@ After pulling the code from github, please make sure to:
 3) Create a folder called 'models' in the root directory. Inside the folder add all your pytorch(.pt) models (YOLO models)
 4) Adjust the paths of the models in detector.py and config.py
 5) Double Check the .gitignore file before making changes
+6) In order to expose the backend fastapi server to all devices in a network, use the command: 
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
+7) Create a .env file inside the frontend folder (same directory as the package.json)
+8) Inside that env put: VITE_API_BASE=http://localhost:8000
+9) If you're accessing the frontend through network ID, then you will need permission to use the webcam or the website may be deemed insecure by the browser. In order to resolve this issue, go to chrome://flags or anybrowserName://flags. Then type insecure and under 'insecure origins treated as secure', put the network address, eg: http://10.255.90.103:5173 and then click enable. Done.
+
