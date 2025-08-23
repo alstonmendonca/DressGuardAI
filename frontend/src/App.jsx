@@ -301,7 +301,7 @@ function App() {
 
   return (
     <div className="p-0">
-      <h1 className="bg-black text-green-400 font-mono text-3xl mb-6 border-b-2 pb-2 border-green-400 tracking-widest uppercase w-auto">
+      <h1 className="bg-black text-green-400 font-mono text-xl sm:text-2xl md:text-3xl mb-4 md:mb-6 border-b-2 pb-2 border-green-400 tracking-widest uppercase w-full text-center px-2">
         DressGuard AI
       </h1>
 
@@ -323,7 +323,7 @@ function App() {
             id="model-select"
             value={currentModel}
             onChange={(e) => handleModelChange(e.target.value)}
-            className="bg-green-900 text-green-300 border border-green-400 p-2 rounded hover:bg-green-800 transition-all cursor-pointer"
+            className="bg-green-900 text-green-300 border border-green-400 p-2 rounded hover:bg-green-800 transition-all cursor-pointer px-3"
           >
             <option value="best">Best Model</option>
             <option value="yolov8n">YOLOv8 Nano</option>

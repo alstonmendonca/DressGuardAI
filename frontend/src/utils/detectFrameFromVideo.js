@@ -57,7 +57,7 @@ export default function detectFrameFromVideo({
       formData.append("model", currentModel); // Add current model to request
 
       try {
-        const response = await fetch("http://127.0.0.1:8000/detect/", {
+        const response = await fetch("/api/detect/", {
           method: "POST",
           body: formData,
         });
