@@ -59,13 +59,22 @@ function App() {
     // Fetch available models when component mounts
     const fetchModels = async () => {
       try {
-        const response = await fetch("http://127.0.0.1:8000/current-model/");
-        if (response.ok) {
-          const data = await response.json();
-          setCurrentModel(data.current_model);
+        // First get current model
+        const currentResponse = await fetch("/api/current-model/");
+        if (currentResponse.ok) {
+          const currentData = await currentResponse.json();
+          setCurrentModel(currentData.current_model);
         }
+        
+        // Then get available models (you might need to create this endpoint)
+        // Alternatively, you can hardcode the available models for now
+        const availableModelsList = ["best", "yolov8n"]; // Add your actual available models
+        setAvailableModels(availableModelsList);
+        
       } catch (err) {
-        console.error("Failed to fetch current model:", err);
+        console.error("Failed to fetch models:", err);
+        // Fallback to hardcoded available models
+        setAvailableModels(["best", "yolov8n"]);
       }
     };
     
@@ -159,7 +168,7 @@ function App() {
     formData.append("model", currentModel);
 
     try {
-      const response = await fetch("http://127.0.0.1:8000/detect/", {
+      const response = await fetch("/api/detect/", {
         method: "POST",
         body: formData,
       });
@@ -230,7 +239,7 @@ function App() {
       
 
       try {
-        const response = await fetch("http://127.0.0.1:8000/detect/", {
+        const response = await fetch("/api/detect/", {
           method: "POST",
           body: formData,
         });
@@ -261,7 +270,7 @@ function App() {
     // Convert to lowercase and ensure it matches your MODEL_PATHS
     const modelToSend = modelName.toLowerCase();
     
-    const response = await fetch("http://127.0.0.1:8000/switch-model/", {
+    const response = await fetch("/api/switch-model/", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -305,9 +314,21 @@ function App() {
           className="bg-green-900 text-green-300 border border-green-400 p-2 rounded hover:bg-green-800 transition-all cursor-pointer"
         />
 
-        {/* Current model display */}
-        <div className="text-green-300 p-2 w-fit">
-          Current Model: <span className="font-bold">{currentModel}</span>
+        {/* Model selection dropdown */}
+        <div className="flex items-center gap-2">
+          <label htmlFor="model-select" className="text-green-300">
+            Model:
+          </label>
+          <select
+            id="model-select"
+            value={currentModel}
+            onChange={(e) => handleModelChange(e.target.value)}
+            className="bg-green-900 text-green-300 border border-green-400 p-2 rounded hover:bg-green-800 transition-all cursor-pointer"
+          >
+            <option value="best">Best Model</option>
+            <option value="yolov8n">YOLOv8 Nano</option>
+            {/* Add more options as needed */}
+          </select>
         </div>
       </div>
       
