@@ -305,25 +305,25 @@ function App() {
         DressGuard AI
       </h1>
 
-      <div className="flex items-center justify-center gap-4 mb-6">
+      <div className="flex flex-col sm:flex-row items-center justify-center gap-2 sm:gap-3 md:gap-4 mb-4 md:mb-6 px-2">
         {/* File input */}
         <input
           type="file"
           accept="image/*,video/*"  
           onChange={handleFileChange}
-          className="bg-green-900 text-green-300 border border-green-400 p-2 rounded hover:bg-green-800 transition-all cursor-pointer"
+          className="bg-green-900 text-green-300 border border-green-400 p-1 sm:p-2 rounded hover:bg-green-800 transition-all cursor-pointer text-xs sm:text-sm w-full sm:w-auto max-w-xs"
         />
 
         {/* Model selection dropdown */}
-        <div className="flex items-center gap-2">
-          <label htmlFor="model-select" className="text-green-300">
+        <div className="flex items-center gap-1 sm:gap-2 w-full sm:w-auto justify-center">
+          <label htmlFor="model-select" className="text-green-300 text-xs sm:text-sm whitespace-nowrap">
             Model:
           </label>
           <select
             id="model-select"
             value={currentModel}
             onChange={(e) => handleModelChange(e.target.value)}
-            className="bg-green-900 text-green-300 border border-green-400 p-2 rounded hover:bg-green-800 transition-all cursor-pointer px-3"
+            className="bg-green-900 text-green-300 border border-green-400 p-1 sm:p-2 rounded hover:bg-green-800 transition-all cursor-pointer px-2 text-xs sm:text-sm w-full sm:w-auto"
           >
             <option value="best">Best Model</option>
             <option value="yolov8n">YOLOv8 Nano</option>
