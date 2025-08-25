@@ -21,6 +21,11 @@ function App() {
   const [currentModel, setCurrentModel] = useState("best"); // Default to your best model
   const [availableModels, setAvailableModels] = useState([]); // Will store available models
 
+  const [complianceInfo, setComplianceInfo] = useState({
+    isCompliant: true,
+    nonCompliantItems: []
+  });
+
   // References to DOM elements: canvas for drawing, img for size measurement
   const canvasRef = useRef(null);
   const imageRef = useRef(null);
@@ -33,7 +38,8 @@ function App() {
   const lastWebcamLogTime = useRef(0);
   const WEB_CAM_LOG_INTERVAL = 3000; // Log every 3 seconds
 
-  
+  const lastDetectionUpdate = useRef(0);
+  const DETECTION_UPDATE_INTERVAL = 8000; // ms
 
   useEffect(() => {
     return () => {
@@ -176,6 +182,12 @@ function App() {
       if (response.ok) {
         const data = await response.json();
         setDetections(data.clothes_detected);
+        
+        setComplianceInfo({
+          isCompliant: data.compliant,
+          nonCompliantItems: data.non_compliant_items || []
+        });
+        
         logComplianceResults(data, "Image");
       }
     } catch (err) {
@@ -247,8 +259,28 @@ function App() {
         if (response.ok) {
           const data = await response.json();
           drawBoxes({ canvasRef, imageRef, videoRef, activeFeed, detections: data.clothes_detected });
-          // ✅ THROTTLED LOGGING FOR WEBCAM
+
           const now = Date.now();
+
+          // Smooth update: only update if detection results are significantly different
+          if (now - lastDetectionUpdate.current > DETECTION_UPDATE_INTERVAL) {
+            // Check if the new detections are different enough to warrant an update
+            const shouldUpdate = shouldUpdateDetections(data.clothes_detected, detections);
+            
+            if (shouldUpdate) {
+              setDetections(data.clothes_detected);
+              setComplianceInfo({
+                isCompliant: data.compliant,
+                nonCompliantItems: data.non_compliant_items || []
+              });
+            }
+            
+            lastDetectionUpdate.current = now;
+          }
+
+
+          // ✅ THROTTLED LOGGING FOR WEBCAM
+          now = Date.now();
           if (now - lastWebcamLogTime.current > WEB_CAM_LOG_INTERVAL) {
             logComplianceResults(data, "Webcam");
             lastWebcamLogTime.current = now;
@@ -264,6 +296,25 @@ function App() {
       requestAnimationFrame(captureAndDetectLoop);
     }, "image/jpeg", 0.7);
   };
+
+  // Helper function to determine if detections are significantly different
+const shouldUpdateDetections = (newDetections, currentDetections) => {
+  if (newDetections.length !== currentDetections.length) return true;
+  
+  // Check if any detection class or confidence has changed significantly
+  for (let i = 0; i < newDetections.length; i++) {
+    const newDet = newDetections[i];
+    const currentDet = currentDetections[i];
+    
+    if (!currentDet || 
+        newDet.class !== currentDet.class || 
+        Math.abs(newDet.confidence - currentDet.confidence) > 0.1) {
+      return true;
+    }
+  }
+  
+  return false;
+};
 
   const handleModelChange = async (modelName) => {
   try {
@@ -357,7 +408,10 @@ function App() {
         />
 
         {/* === DETECTION LIST (right column, top) === */}
-        <DetectionList detections={detections} />
+        <DetectionList 
+          detections={detections} 
+          complianceInfo={complianceInfo}
+        />
 
         {/* === PANEL 4: Allows to choose from different camera feeds*/}
         <CameraPanel 
