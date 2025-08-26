@@ -24,15 +24,18 @@ function DetectionList({ detections, complianceInfo }) {
     return !complianceInfo.nonCompliantItems.includes(itemName);
   };
 
+  // Filter detections to only include those with confidence > 0.5
+  const filteredDetections = detections.filter(det => det.confidence > 0.5);
+
   return (
     <div className="row-span-1 bg-green-950 p-4 rounded shadow-lg text-left text-sm h-full flex flex-col">
       <h2 className="text-xl font-bold border-b border-green-400 mb-2">
         Detected Items:
       </h2>
 
-      {detections.length > 0 ? (
+      {filteredDetections.length > 0 ? (
         <ul className="space-y-2 flex-1">
-          {detections.map((det, index) => (
+          {filteredDetections.map((det, index) => (
             <DetectionListItem 
               key={`${det.class}-${det.confidence}-${index}`}
               det={det}
@@ -46,7 +49,7 @@ function DetectionList({ detections, complianceInfo }) {
         </p>
       )}
       {/* Overall compliance status */}
-      {detections.length > 0 && (
+      {filteredDetections.length > 0 && (
         <div className={`mt-4 p-3 rounded border ${
           complianceInfo.isCompliant 
             ? 'border-green-500 bg-green-900/30' 

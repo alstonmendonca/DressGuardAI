@@ -9,6 +9,11 @@ MODELS = {
         "path": "models/yolov8n.pt",
         "display_name": "YOLOv8 Nano",
         "description": "Lightweight clothing detection model"
+    },
+    "final": {
+        "path": "models/final.pt",
+        "display_name": "final",
+        "description": "Detects all clothing perfectly."
     }
 }
 
@@ -22,7 +27,7 @@ COMPLIANT_CLOTHES = {
 
 # Explicitly non-compliant items
 NON_COMPLIANT_CLOTHES = {
-    "t-shirt", "shorts", "tshirt", "tee shirt", "t shirt", "short pants"
+    "t-shirt", "shorts", "tshirt", "tee shirt", "t shirt", "short pants", "short"
 }
 
 # Alternative spellings and variations (only for compliant items)

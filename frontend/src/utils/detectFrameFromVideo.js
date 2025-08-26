@@ -64,12 +64,14 @@ export default function detectFrameFromVideo({
 
         if (response.ok) {
           const data = await response.json();
-          setDetections(data.clothes_detected);
+          // Filter detections with confidence > 0.75 for video frames
+          const filteredDetections = data.clothes_detected.filter(det => det.confidence > 0.6);
+          setDetections(filteredDetections);
           logComplianceResults(data, "Video Frame");
 
           // Draw boxes after detection
           requestAnimationFrame(() => {
-            drawBoxes({ canvasRef, imageRef, videoRef, activeFeed, detections });
+            drawBoxes({ canvasRef, imageRef, videoRef, activeFeed, detections: filteredDetections });
           });
         } else {
           console.error("Detection failed:", await response.text());

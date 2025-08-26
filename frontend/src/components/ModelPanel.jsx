@@ -15,10 +15,10 @@ export default function ModelPanel({ currentModel, onModelChange }) {
             description: "Lightweight clothing detection"
         },
         {
-            id: "yolov10",
-            name: "YOLOv10",
-            available: false,
-            description: "Coming soon"
+            id: "final",
+            name: "Final Model",
+            available: true,
+            description: "detects everything"
         },
         {
             id: "yolov12",

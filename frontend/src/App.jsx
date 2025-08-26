@@ -376,8 +376,9 @@ const shouldUpdateDetections = (newDetections, currentDetections) => {
             onChange={(e) => handleModelChange(e.target.value)}
             className="bg-green-900 text-green-300 border border-green-400 p-1 sm:p-2 rounded hover:bg-green-800 transition-all cursor-pointer px-2 text-xs sm:text-sm w-full sm:w-auto"
           >
-            <option value="best">Best Model</option>
+            <option value="best">Initial Model</option>
             <option value="yolov8n">YOLOv8 Nano</option>
+            <option value="final">Final Model</option>
             {/* Add more options as needed */}
           </select>
         </div>

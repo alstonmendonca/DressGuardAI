@@ -48,7 +48,10 @@ export default function drawBoxes({
   const scaleX = displayWidth / originalWidth;
   const scaleY = displayHeight / originalHeight;
 
-  detections.forEach((det) => {
+  // Filter detections with confidence > 0.75
+  const filteredDetections = detections.filter(det => det.confidence > 0.6);
+
+  filteredDetections.forEach((det) => {
     const [x1, y1, x2, y2] = det.bbox;
     const sx1 = x1 * scaleX;
     const sy1 = y1 * scaleY;

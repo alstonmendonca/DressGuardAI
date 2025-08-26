@@ -8,13 +8,13 @@ export default function ActionsPanel(){
             Change Model
           </button>
           <button className="bg-black border border-green-600 py-1 sm:py-2 hover:bg-green-900 transition text-xs sm:text-sm">
-            📄 Generate Report
+            Generate Report
           </button>
           <button className="bg-black border border-green-600 py-1 sm:py-2 hover:bg-green-900 transition text-xs sm:text-sm">
-            🔔 Set Alerts
+            Set Alerts
           </button>
           <button className="bg-black border border-green-600 py-1 sm:py-2 hover:bg-green-900 transition text-xs sm:text-sm">
-            📂 Save Session
+            Save Session
           </button>
           <button className="bg-black border border-green-600 py-1 sm:py-2 hover:bg-green-900 transition text-xs sm:text-sm">
             History
