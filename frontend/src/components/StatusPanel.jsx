@@ -16,9 +16,6 @@ export default function StatusPanel(){
           <button className="bg-black border border-green-600 py-1 sm:py-2 hover:bg-green-900 transition text-xs sm:text-sm text-left pl-2 sm:pl-3">
             Resolution: 1080p
           </button>
-          <button className="bg-black border border-green-600 py-1 sm:py-2 hover:bg-green-900 transition text-xs sm:text-sm text-left pl-2 sm:pl-3">
-            Uptime: 7h 24m
-          </button>
         </div>
     );
 }

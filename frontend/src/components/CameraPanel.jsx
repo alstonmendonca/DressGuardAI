@@ -27,9 +27,6 @@ export default function CameraPanel({ onStartWebcam, onStopWebcam, isWebcamActiv
           <button className="bg-black border border-green-600 py-1 sm:py-2 hover:bg-green-900 transition text-xs sm:text-sm">
             Camera-2
           </button>
-          <button className="bg-black border border-green-600 py-1 sm:py-2 hover:bg-green-900 transition text-xs sm:text-sm">
-            Camera-3
-          </button>
           <button
             className="bg-black border border-green-600 py-1 sm:py-2 hover:bg-green-900 transition text-xs sm:text-sm"
             onClick={() => document.querySelector('input[type="file"]').click()}
