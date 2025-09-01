@@ -278,12 +278,11 @@ function App() {
             lastDetectionUpdate.current = now;
           }
 
-
-          // ✅ THROTTLED LOGGING FOR WEBCAM
-          now = Date.now();
-          if (now - lastWebcamLogTime.current > WEB_CAM_LOG_INTERVAL) {
+          //THROTTLED LOGGING FOR WEBCAM
+          const lognNow = Date.now();
+          if (logNow - lastWebcamLogTime.current > WEB_CAM_LOG_INTERVAL) {
             logComplianceResults(data, "Webcam");
-            lastWebcamLogTime.current = now;
+            lastWebcamLogTime.current = logNow;
           }
         }
       } catch (err) {
