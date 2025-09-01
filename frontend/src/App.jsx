@@ -292,7 +292,6 @@ function App() {
         setTimeout(() => requestAnimationFrame(captureAndDetectLoop), 100); 
       }
 
-      requestAnimationFrame(captureAndDetectLoop);
     }, "image/jpeg", 0.7);
   };
 
