@@ -88,6 +88,45 @@ function App() {
   }, []);
 
 
+  const startIPCamera = (url) => {
+  console.log("Starting IP Camera feed:", url);
+  setActiveFeed('ipcam');
+  setDetections([]);
+  isDetecting.current = false;
+
+  const video = videoRef.current;
+  if (!video) {
+    console.warn("Video element not ready");
+    return;
+  }
+
+  // Stop any existing stream
+  if (videoStream.current) {
+    videoStream.current.getTracks().forEach(t => t.stop());
+    videoStream.current = null;
+  }
+
+  // Assign IP camera stream
+  video.srcObject = null;
+  video.src = url;
+  video.crossOrigin = "anonymous"; // allow canvas to read frames
+  video.onloadedmetadata = () => {
+    console.log("IP camera metadata loaded");
+    video.play().catch(err => console.error("Play failed:", err));
+    requestAnimationFrame(captureAndDetectLoop);
+  };
+};
+
+const stopIPCamera = () => {
+  console.log("Stopping IP Camera feed");
+  if (videoRef.current) {
+    videoRef.current.pause();
+    videoRef.current.src = "";
+  }
+  setActiveFeed(null);
+  setDetections([]);
+};
+
   const startWebcam = () => {
     console.log("1. startWebcam called");
     setActiveFeed('webcam');
@@ -209,7 +248,7 @@ function App() {
 
   const captureAndDetectLoop = async () => {
 
-    if (!videoStream.current) {
+    if (!videoStream.current && activeFeed !== "ipcam") {
       console.log("Detection loop stopped - no active stream");
       return;
     }
@@ -417,6 +456,9 @@ const shouldUpdateDetections = (newDetections, currentDetections) => {
           onStartWebcam={startWebcam}
           onStopWebcam={stopWebcam}
           isWebcamActive={activeFeed === 'webcam'}
+          onStartIPCamera={() => startIPCamera("http://100.68.75.75:8080")} 
+          onStopIPCamera={stopIPCamera}
+          isIPCameraActive={activeFeed === 'ipcam'}
         />
 
         {/* === PANEL 5: System Status (Bottom Center) === */}

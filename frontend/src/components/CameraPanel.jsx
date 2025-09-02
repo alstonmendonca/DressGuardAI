@@ -1,6 +1,11 @@
 import React from "react";
 
-export default function CameraPanel({ onStartWebcam, onStopWebcam, isWebcamActive }){
+export default function CameraPanel({ onStartWebcam, 
+  onStopWebcam, 
+  isWebcamActive, 
+  onStartIPCamera,
+  onStopIPCamera,
+  isIPCameraActive }){
     return(
         <div className="bg-green-950 border border-green-500 p-2 sm:p-3 md:p-4 rounded flex flex-col gap-2 sm:gap-3 h-full overflow-y-auto">
           <h3 className="text-center font-bold text-green-300 mb-2 sm:mb-3 md:mb-4 text-sm sm:text-base">Camera</h3>
@@ -20,6 +25,14 @@ export default function CameraPanel({ onStartWebcam, onStopWebcam, isWebcamActiv
               🎥 Start Webcam
             </button>
           )}
+
+          {isIPCameraActive ? (
+            <button onClick={onStopIPCamera}>🔴 Stop IP Camera</button>
+          ) : (
+            <button onClick={onStartIPCamera}>📱 Start Phone Camera</button>
+          )}
+
+          
           
           <button className="bg-black border border-green-600 py-1 sm:py-2 hover:bg-green-900 transition text-xs sm:text-sm">
             Camera-1
