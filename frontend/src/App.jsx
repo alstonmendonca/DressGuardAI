@@ -8,6 +8,7 @@ import ActionsPanel from './components/ActionsPanel';
 import DetectionList from './components/DetectionList';
 import MainFeed from "./components/MainFeed";
 import ModelPanel from './components/ModelPanel';
+import CompliancePanel from './components/CompliancePanel';
 import { logComplianceResults } from './utils/complianceLogger';
 
 function App() {
@@ -19,7 +20,7 @@ function App() {
   const [activeFeed, setActiveFeed] = useState(null); // 'image', 'webcam', 'video'
 
   const [currentModel, setCurrentModel] = useState("best"); // Default to your best model
-  const [availableModels, setAvailableModels] = useState([]); // Will store available models
+  const [availableModels, setAvailableModels] = useState([]); // Dynamically loaded models
 
   const [complianceInfo, setComplianceInfo] = useState({
     isCompliant: true,
@@ -31,15 +32,16 @@ function App() {
   const imageRef = useRef(null);
   const videoRef = useRef(null);
   const videoStream = useRef(null);
-  const isDetecting = useRef(false); // FPS limiter
+  const isDetecting = useRef(false); // Prevent concurrent detections
   const hiddenCanvasRef = useRef(null);
 
-  // Add this throttle variable at the top of your component
+  // Throttle logging only (not detection)
   const lastWebcamLogTime = useRef(0);
   const WEB_CAM_LOG_INTERVAL = 3000; // Log every 3 seconds
-
-  const lastDetectionUpdate = useRef(0);
-  const DETECTION_UPDATE_INTERVAL = 8000; // ms
+  
+  // Smart throttling for webcam frame capture
+  const lastFrameTime = useRef(0);
+  const FRAME_INTERVAL = 150; // 150ms between frames (~6-7 FPS for detection, smooth for webcam)
 
   useEffect(() => {
     return () => {
@@ -54,7 +56,9 @@ function App() {
   }, [imageURL]);
 
   useEffect(() => {
-    if ((activeFeed === "image" || activeFeed === "video") && detections.length > 0) {
+    // Only draw boxes for image/video modes and webcam mode
+    // For webcam, we'll draw in the detection loop for synchronization
+    if (activeFeed && detections.length > 0) {
       requestAnimationFrame(() =>
         drawBoxes({ canvasRef, imageRef, videoRef, activeFeed, detections })
       );
@@ -62,29 +66,35 @@ function App() {
   }, [detections, activeFeed]);
 
   useEffect(() => {
-    // Fetch available models when component mounts
-    const fetchModels = async () => {
+    // Fetch current model and available models when component mounts
+    const fetchCurrentModel = async () => {
       try {
-        // First get current model
-        const currentResponse = await fetch("/api/current-model/");
-        if (currentResponse.ok) {
-          const currentData = await currentResponse.json();
-          setCurrentModel(currentData.current_model);
+        const response = await fetch("/api/current-model/");
+        if (response.ok) {
+          const data = await response.json();
+          setCurrentModel(data.current_model);
+          console.log("Current model:", data.current_model);
         }
-        
-        // Then get available models (you might need to create this endpoint)
-        // Alternatively, you can hardcode the available models for now
-        const availableModelsList = ["best", "yolov8n"]; // Add your actual available models
-        setAvailableModels(availableModelsList);
-        
       } catch (err) {
-        console.error("Failed to fetch models:", err);
-        // Fallback to hardcoded available models
-        setAvailableModels(["best", "yolov8n"]);
+        console.error("Failed to fetch current model:", err);
       }
     };
     
-    fetchModels();
+    const fetchAvailableModels = async () => {
+      try {
+        const response = await fetch("/api/models/");
+        if (response.ok) {
+          const data = await response.json();
+          setAvailableModels(data.models || []);
+          console.log("Available models:", data.models);
+        }
+      } catch (err) {
+        console.error("Failed to fetch available models:", err);
+      }
+    };
+    
+    fetchCurrentModel();
+    fetchAvailableModels();
   }, []);
 
 
@@ -127,67 +137,40 @@ const stopIPCamera = () => {
   setDetections([]);
 };
 
-  const startWebcam = () => {
-    console.log("1. startWebcam called");
+  const startWebcam = async () => {
+    console.log("Starting backend webcam stream...");
     setActiveFeed('webcam');
     setDetections([]);
     isDetecting.current = false;
+    
+    // No need to access browser webcam - backend handles it
+    // The img element will automatically start displaying the MJPEG stream
   };
 
-  const stopWebcam = () => {
-    console.log("Stopping webcam...");
+  const stopWebcam = async () => {
+    console.log("Stopping backend webcam stream...");
     
-    // Stop the detection loop
-    isDetecting.current = true; // This will prevent new detections
-    
-    // Stop the video stream
-    if (videoStream.current) {
-      videoStream.current.getTracks().forEach(track => track.stop());
-      videoStream.current = null;
+    try {
+      // Tell backend to stop the webcam
+      await fetch("/api/webcam/stop/", { method: "POST" });
+      console.log("Backend webcam stopped");
+    } catch (err) {
+      console.error("Error stopping webcam:", err);
     }
     
-    // Clear the video element
-    if (videoRef.current) {
-      videoRef.current.srcObject = null;
-    }
-    
-    // Reset state
+    // Reset frontend state
     setActiveFeed(null);
     setDetections([]);
+    isDetecting.current = false;
     
     console.log("Webcam stopped");
   };
 
-  const setupWebcamStream = async () => {
-    console.log("3. setupWebcamStream running");
-    const video = videoRef.current;
-    if (!video) {
-      console.warn("Video element not ready");
-      return;
-    }
-
-    // Stop existing stream
-    if (videoStream.current) {
-      videoStream.current.getTracks().forEach(t => t.stop());
-    }
-
-    try {
-      console.log("4. Requesting webcam access...");
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-      console.log("5. Webcam access granted", stream);
-      videoStream.current = stream;
-      video.srcObject = stream;
-
-      video.onloadedmetadata = () => {
-        console.log("6. Metadata loaded, playing video...");
-        video.play().catch(err => console.error("Play failed:", err));
-        requestAnimationFrame(captureAndDetectLoop);
-      };
-    } catch (err) {
-      console.error("Webcam access denied:", err);
-      alert("Unable to access camera. Check permissions.");
-      setActiveFeed(null);
-    }
+  // Simplified - no longer needed for backend streaming
+  const setupWebcamStream = () => {
+    // Backend handles webcam access directly
+    // This function kept for compatibility but does nothing
+    console.log("Using backend webcam stream - no browser webcam access needed");
   };
 
   /**
@@ -247,9 +230,9 @@ const stopIPCamera = () => {
   
 
   const captureAndDetectLoop = async () => {
-
-    if (!videoStream.current && activeFeed !== "ipcam") {
-      console.log("Detection loop stopped - no active stream");
+    // Only runs for IP camera - webcam uses backend streaming
+    if (activeFeed !== "ipcam") {
+      console.log("Detection loop stopped - not IP camera");
       return;
     }
     
@@ -257,25 +240,59 @@ const stopIPCamera = () => {
     const hiddenCanvas = hiddenCanvasRef.current;
     const overlayCanvas = canvasRef.current;
 
-    if (!video || !hiddenCanvas || !overlayCanvas || !video.srcObject || video.readyState < 3) {
-      console.warn("Video not ready", { video: !!video, canvas: !!hiddenCanvas, srcObject: !!video?.srcObject, readyState: video?.readyState });
-      // Not ready, retry
+    // Validation with better error handling
+    if (!video || !hiddenCanvas || !overlayCanvas) {
+      console.warn("Missing required elements");
       requestAnimationFrame(captureAndDetectLoop);
       return;
     }
 
+    // Check video readiness (readyState >= 2 means HAVE_CURRENT_DATA)
+    if (!video.srcObject || video.readyState < 2) {
+      console.debug("Video not ready", { 
+        hasSrcObject: !!video.srcObject, 
+        readyState: video.readyState 
+      });
+      requestAnimationFrame(captureAndDetectLoop);
+      return;
+    }
+
+    // Check if detection is already in progress
     if (isDetecting.current) {
       requestAnimationFrame(captureAndDetectLoop);
       return;
     }
+    
+    // Smart throttling - allow frames every 150ms for smooth real-time detection
+    const now = Date.now();
+    if (now - lastFrameTime.current < FRAME_INTERVAL) {
+      requestAnimationFrame(captureAndDetectLoop);
+      return;
+    }
+    lastFrameTime.current = now;
 
     isDetecting.current = true;
 
-    hiddenCanvas.width = video.videoWidth;
-    hiddenCanvas.height = video.videoHeight;
-    const ctx = hiddenCanvas.getContext("2d");
-    ctx.drawImage(video, 0, 0, hiddenCanvas.width, hiddenCanvas.height);
+    // Set canvas dimensions to match video
+    if (hiddenCanvas.width !== video.videoWidth || hiddenCanvas.height !== video.videoHeight) {
+      hiddenCanvas.width = video.videoWidth;
+      hiddenCanvas.height = video.videoHeight;
+    }
 
+    const ctx = hiddenCanvas.getContext("2d", { alpha: false });
+    
+    try {
+      // Clear and draw video frame
+      ctx.clearRect(0, 0, hiddenCanvas.width, hiddenCanvas.height);
+      ctx.drawImage(video, 0, 0, hiddenCanvas.width, hiddenCanvas.height);
+    } catch (err) {
+      console.error("Failed to draw video frame:", err);
+      isDetecting.current = false;
+      requestAnimationFrame(captureAndDetectLoop);
+      return;
+    }
+
+    // Convert to blob with optimized quality
     hiddenCanvas.toBlob(async (blob) => {
       if (!blob) {
         console.warn("toBlob returned null");
@@ -286,84 +303,71 @@ const stopIPCamera = () => {
 
       const formData = new FormData();
       formData.append("file", blob, "webcam-frame.jpg");
-      formData.append("model", currentModel);  // Add current model to request
-      
+      formData.append("model", currentModel);
+
+      // Create abort controller for timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);  // 5 second timeout
 
       try {
         const response = await fetch("/api/detect/", {
           method: "POST",
           body: formData,
+          signal: controller.signal
         });
 
-        if (response.ok) {
-          const data = await response.json();
-          drawBoxes({ canvasRef, imageRef, videoRef, activeFeed, detections: data.clothes_detected });
+        clearTimeout(timeoutId);
 
-          const now = Date.now();
-
-          // Smooth update: only update if detection results are significantly different
-          if (now - lastDetectionUpdate.current > DETECTION_UPDATE_INTERVAL) {
-            // Check if the new detections are different enough to warrant an update
-            const shouldUpdate = shouldUpdateDetections(data.clothes_detected, detections);
-            
-            if (shouldUpdate) {
-              setDetections(data.clothes_detected);
-              setComplianceInfo({
-                isCompliant: data.compliant,
-                nonCompliantItems: data.non_compliant_items || []
-              });
-            }
-            
-            lastDetectionUpdate.current = now;
-          }
-
-          //THROTTLED LOGGING FOR WEBCAM
-          const lognNow = Date.now();
-          if (logNow - lastWebcamLogTime.current > WEB_CAM_LOG_INTERVAL) {
-            logComplianceResults(data, "Webcam");
-            lastWebcamLogTime.current = logNow;
-          }
+        if (!response.ok) {
+          console.error(`Detection failed (${response.status})`);
+          isDetecting.current = false;
+          setTimeout(() => requestAnimationFrame(captureAndDetectLoop), 100);
+          return;
         }
+
+        const data = await response.json();
+        
+        // Update detections immediately for real-time response
+        // The useEffect will handle drawing boxes
+        setDetections(data.clothes_detected);
+        setComplianceInfo({
+          isCompliant: data.compliant,
+          nonCompliantItems: data.non_compliant_items || []
+        });
+
+        // Throttled logging for webcam (to avoid console spam)
+        const logNow = Date.now();
+        if (logNow - lastWebcamLogTime.current > WEB_CAM_LOG_INTERVAL) {
+          logComplianceResults(data, "Webcam");
+          lastWebcamLogTime.current = logNow;
+        }
+
       } catch (err) {
-        console.error("Webcam detection error:", err);
+        clearTimeout(timeoutId);
+        
+        if (err.name === 'AbortError') {
+          console.warn("Detection request timeout");
+        } else {
+          console.error("Webcam detection error:", err.message);
+        }
       } finally {
         isDetecting.current = false;
-        setTimeout(() => requestAnimationFrame(captureAndDetectLoop), 100); 
+        // Continue detection loop immediately
+        requestAnimationFrame(captureAndDetectLoop);
       }
 
-    }, "image/jpeg", 0.7);
+    }, "image/jpeg", 0.75);  // Optimized JPEG quality
   };
-
-  // Helper function to determine if detections are significantly different
-const shouldUpdateDetections = (newDetections, currentDetections) => {
-  if (newDetections.length !== currentDetections.length) return true;
-  
-  // Check if any detection class or confidence has changed significantly
-  for (let i = 0; i < newDetections.length; i++) {
-    const newDet = newDetections[i];
-    const currentDet = currentDetections[i];
-    
-    if (!currentDet || 
-        newDet.class !== currentDet.class || 
-        Math.abs(newDet.confidence - currentDet.confidence) > 0.1) {
-      return true;
-    }
-  }
-  
-  return false;
-};
 
   const handleModelChange = async (modelName) => {
   try {
-    // Convert to lowercase and ensure it matches your MODEL_PATHS
-    const modelToSend = modelName.toLowerCase();
-    
+    // Send the model name as-is (backend handles case-insensitive matching)
     const response = await fetch("/api/switch-model/", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ model_name: modelToSend }),
+      body: JSON.stringify({ model_name: modelName }),
     });
 
     if (!response.ok) {
@@ -413,10 +417,15 @@ const shouldUpdateDetections = (newDetections, currentDetections) => {
             onChange={(e) => handleModelChange(e.target.value)}
             className="bg-green-900 text-green-300 border border-green-400 p-1 sm:p-2 rounded hover:bg-green-800 transition-all cursor-pointer px-2 text-xs sm:text-sm w-full sm:w-auto"
           >
-            <option value="best">Initial Model</option>
-            <option value="yolov8n">YOLOv8 Nano</option>
-            <option value="final">Final Model</option>
-            {/* Add more options as needed */}
+            {availableModels.length > 0 ? (
+              availableModels.map((model) => (
+                <option key={model.id} value={model.id}>
+                  {model.id} ({model.class_count} classes)
+                </option>
+              ))
+            ) : (
+              <option value={currentModel}>{currentModel}</option>
+            )}
           </select>
         </div>
       </div>
@@ -467,10 +476,14 @@ const shouldUpdateDetections = (newDetections, currentDetections) => {
         {/* === PANEL 6: Settings & Export (Bottom Right) === */}
         <ActionsPanel/>
 
+        {/* === PANEL 7: Model Selection === */}
         <ModelPanel 
           currentModel={currentModel}
           onModelChange={handleModelChange}
         />
+
+        {/* === PANEL 8: Compliance Settings === */}
+        <CompliancePanel currentModel={currentModel} />
 
       </div>
     </div>

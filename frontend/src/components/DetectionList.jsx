@@ -1,5 +1,6 @@
 // components/DetectionList.jsx
 import React, { memo } from "react";
+import { CheckIcon, XIcon } from "./Icons";
 
 const DetectionListItem = memo(({ det, compliant }) => (
   <li className={`p-2 rounded border ${
@@ -11,10 +12,18 @@ const DetectionListItem = memo(({ det, compliant }) => (
       <span className="font-bold">{det.class}</span>
       <span className="text-xs opacity-75">{det.confidence.toFixed(2)}</span>
     </div>
-    <div className={`text-xs mt-1 ${
+    <div className={`text-xs mt-1 flex items-center gap-1 ${
       compliant ? 'text-green-400' : 'text-red-400'
     }`}>
-      {compliant ? '✅ Compliant' : '❌ Non-Compliant'}
+      {compliant ? (
+        <>
+          <CheckIcon className="w-3 h-3" /> Compliant
+        </>
+      ) : (
+        <>
+          <XIcon className="w-3 h-3" /> Non-Compliant
+        </>
+      )}
     </div>
   </li>
 ));
@@ -56,10 +65,16 @@ function DetectionList({ detections, complianceInfo }) {
             : 'border-red-500 bg-red-900/30'
         }`}>
           <h3 className="font-bold mb-1">Overall Status:</h3>
-          <p className={complianceInfo.isCompliant ? 'text-green-400' : 'text-red-400'}>
-            {complianceInfo.isCompliant 
-              ? '✅ All items compliant' 
-              : `❌ ${complianceInfo.nonCompliantItems.length} non-compliant item(s)`}
+          <p className={`flex items-center gap-2 ${complianceInfo.isCompliant ? 'text-green-400' : 'text-red-400'}`}>
+            {complianceInfo.isCompliant ? (
+              <>
+                <CheckIcon className="w-4 h-4" /> All items compliant
+              </>
+            ) : (
+              <>
+                <XIcon className="w-4 h-4" /> {complianceInfo.nonCompliantItems.length} non-compliant item(s)
+              </>
+            )}
           </p>
           {complianceInfo.nonCompliantItems.length > 0 && (
             <div className="text-xs mt-2">

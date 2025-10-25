@@ -1,0 +1,9 @@
+{
+  "compliant": [
+    "helmet"
+  ],
+  "non_compliant": [
+    "no helmet"
+  ],
+  "min_confidence": 0.5
+}

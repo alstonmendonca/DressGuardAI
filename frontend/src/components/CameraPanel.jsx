@@ -1,4 +1,5 @@
 import React from "react";
+import { CameraIcon, StopIcon, PhoneIcon, UploadIcon } from "./Icons";
 
 export default function CameraPanel({ onStartWebcam, 
   onStopWebcam, 
@@ -12,24 +13,28 @@ export default function CameraPanel({ onStartWebcam,
           
           {isWebcamActive ? (
             <button
-              className="bg-black border border-red-600 py-1 sm:py-2 hover:bg-red-900 transition text-xs sm:text-sm"
+              className="bg-black border border-red-600 py-1 sm:py-2 hover:bg-red-900 transition text-xs sm:text-sm flex items-center justify-center gap-2"
               onClick={onStopWebcam}
             >
-              🔴 Stop Webcam
+              <StopIcon className="w-4 h-4" /> Stop Webcam
             </button>
           ) : (
             <button
-              className="bg-black border border-green-600 py-1 sm:py-2 hover:bg-green-900 transition text-xs sm:text-sm"
+              className="bg-black border border-green-600 py-1 sm:py-2 hover:bg-green-900 transition text-xs sm:text-sm flex items-center justify-center gap-2"
               onClick={onStartWebcam}
             >
-              🎥 Start Webcam
+              <CameraIcon className="w-4 h-4" /> Start Webcam
             </button>
           )}
 
           {isIPCameraActive ? (
-            <button onClick={onStopIPCamera}>🔴 Stop IP Camera</button>
+            <button onClick={onStopIPCamera} className="flex items-center justify-center gap-2">
+              <StopIcon className="w-4 h-4" /> Stop IP Camera
+            </button>
           ) : (
-            <button onClick={onStartIPCamera}>📱 Start Phone Camera</button>
+            <button onClick={onStartIPCamera} className="flex items-center justify-center gap-2">
+              <PhoneIcon className="w-4 h-4" /> Start Phone Camera
+            </button>
           )}
 
           
@@ -41,10 +46,10 @@ export default function CameraPanel({ onStartWebcam,
             Camera-2
           </button>
           <button
-            className="bg-black border border-green-600 py-1 sm:py-2 hover:bg-green-900 transition text-xs sm:text-sm"
+            className="bg-black border border-green-600 py-1 sm:py-2 hover:bg-green-900 transition text-xs sm:text-sm flex items-center justify-center gap-2"
             onClick={() => document.querySelector('input[type="file"]').click()}
           >
-            Upload Media
+            <UploadIcon className="w-4 h-4" /> Upload Media
           </button>
         </div>
     );

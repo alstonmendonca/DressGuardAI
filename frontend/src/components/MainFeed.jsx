@@ -71,24 +71,23 @@ export default function MainFeed({
           />
           <canvas ref={canvasRef} className="absolute top-0 left-0 pointer-events-none" />
         </>
-      ) : /* --- WEBCAM MODE --- */ activeFeed === "webcam" ? (
+      ) : /* --- WEBCAM MODE (Backend MJPEG Stream) --- */ activeFeed === "webcam" ? (
         <>
-          <video
-            ref={videoRef}
-            autoPlay
-            muted
-            playsInline
+          <img
+            src="/api/webcam/stream/"
+            alt="Live Webcam Detection"
             className="w-full h-auto"
-            onPlay={() => {
-              console.log("▶️ Webcam started playing");
+            onLoad={() => {
+              console.log("Webcam stream started");
               setIsStreaming(true);
               onWebcamStreamStart();
             }}
+            onError={(e) => {
+              console.error("Webcam stream error:", e);
+              setIsStreaming(false);
+            }}
           />
-          {/* Overlay canvas for boxes */}
-          <canvas ref={canvasRef} className="absolute top-0 left-0 pointer-events-none" />
-          {/* Hidden canvas for capturing frames */}
-          <canvas ref={hiddenCanvasRef} className="hidden" />
+          {/* No canvas needed - backend handles annotations */}
         </>
       ) : (
         <div className="w-full h-64 bg-black flex items-center justify-center">
