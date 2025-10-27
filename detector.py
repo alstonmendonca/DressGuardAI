@@ -1,7 +1,8 @@
 from ultralytics import YOLO
 import cv2
 import numpy as np
-from config import DEFAULT_MODEL, MODELS_FOLDER
+import torch
+from config import DEFAULT_MODEL, MODELS_FOLDER, ENABLE_GPU, HALF_PRECISION
 from utils.model_discovery import get_model_discovery
 import logging
 import os
@@ -15,6 +16,10 @@ class DressDetector:
         self.current_model = None
         self.model = None
         self.clothing_classes = {}
+        
+        # Determine device (GPU or CPU)
+        self.device = self._get_device()
+        logger.info(f"Using device: {self.device}")
         
         # Discover available models
         available_models = self.model_discovery.get_all_models()
@@ -37,6 +42,24 @@ class DressDetector:
             else:
                 raise RuntimeError(f"Failed to initialize detector")
     
+    def _get_device(self):
+        """
+        Determine the device to use for inference
+        
+        Returns:
+            str: 'cuda' for GPU or 'cpu' for CPU
+        """
+        if ENABLE_GPU and torch.cuda.is_available():
+            gpu_name = torch.cuda.get_device_name(0)
+            logger.info(f"GPU available: {gpu_name}")
+            return 'cuda'
+        else:
+            if ENABLE_GPU:
+                logger.warning("GPU requested but CUDA not available, using CPU")
+            else:
+                logger.info("GPU disabled in config, using CPU")
+            return 'cpu'
+    
     def _load_model(self, model_name: str) -> bool:
         """
         Load a YOLO model by name
@@ -58,12 +81,21 @@ class DressDetector:
         try:
             logger.info(f"Loading model: {model_name} from {model_path}")
             self.model = YOLO(model_path)
+            
+            # Move model to appropriate device
+            self.model.to(self.device)
+            
+            # Enable half precision if configured and on GPU
+            if HALF_PRECISION and self.device == 'cuda':
+                logger.info("Enabling half precision (FP16) for faster inference")
+                self.model.half()
+            
             self.current_model = model_name
             
             # Cache the clothing classes for this model
             self.clothing_classes[model_name] = self._get_clothing_classes()
             
-            logger.info(f"Successfully loaded model '{model_name}' with {len(self.clothing_classes[model_name])} classes")
+            logger.info(f"Successfully loaded model '{model_name}' on {self.device} with {len(self.clothing_classes[model_name])} classes")
             return True
             
         except Exception as e:
@@ -130,8 +162,8 @@ class DressDetector:
             return []
         
         try:
-            # Run inference
-            results = self.model(image, conf=confidence_threshold)
+            # Run inference on the configured device
+            results = self.model(image, conf=confidence_threshold, device=self.device)
             
             if not results or len(results) == 0:
                 logger.debug("No detections found in image")
@@ -193,5 +225,27 @@ class DressDetector:
         info['name'] = target_model
         info['is_current'] = (target_model == self.current_model)
         info['classes'] = list(self.clothing_classes.get(target_model, []))
+        
+        return info
+    
+    def get_device_info(self):
+        """
+        Get information about the device being used for inference
+        
+        Returns:
+            dict: Device information including type, name, and memory (if GPU)
+        """
+        device_info = {
+            "device": self.device,
+            "device_type": "GPU" if self.device == "cuda" else "CPU"
+        }
+        
+        if self.device == "cuda" and torch.cuda.is_available():
+            device_info["gpu_name"] = torch.cuda.get_device_name(0)
+            device_info["gpu_memory_total"] = f"{torch.cuda.get_device_properties(0).total_memory / 1024**3:.2f} GB"
+            device_info["gpu_memory_allocated"] = f"{torch.cuda.memory_allocated(0) / 1024**3:.2f} GB"
+            device_info["gpu_memory_cached"] = f"{torch.cuda.memory_reserved(0) / 1024**3:.2f} GB"
+        
+        return device_info
         
         return info

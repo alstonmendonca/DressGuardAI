@@ -9,9 +9,11 @@ from utils.logger import setup_logging
 from utils.cache import get_cache
 from utils.distance_checker import get_distance_checker
 from utils.model_discovery import get_model_discovery
+from utils.violation_logger import get_violation_logger
+from utils.face_recognition_utils import detect_and_identify_faces
 from config import (MODELS_FOLDER, WEBCAM_DETECTION_INTERVAL, WEBCAM_ENABLE_DISTANCE_CHECK, 
                     WEBCAM_JPEG_QUALITY, WEBCAM_FPS_LIMIT, WEBCAM_REQUIRED_GOOD_FRAMES, 
-                    WEBCAM_ALLOWED_BAD_FRAMES)
+                    WEBCAM_ALLOWED_BAD_FRAMES, WEBCAM_SKIP_FRAMES)
 import logging
 from typing import Optional, List
 import os
@@ -72,6 +74,9 @@ except Exception as e:
 # Initialize compliance manager
 compliance_manager = ComplianceManager()
 
+# Initialize violation logger
+violation_logger = get_violation_logger()
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # for dev, restrict in prod
@@ -122,6 +127,17 @@ async def health_check():
         "current_model": detector.current_model,
         "available_models": list(available_models.keys())
     }
+
+@app.get("/device/")
+async def get_device_info():
+    """Get information about the device being used for inference (GPU/CPU)"""
+    if detector is None:
+        return JSONResponse(
+            status_code=503,
+            content={"error": "Detector not initialized"}
+        )
+    
+    return detector.get_device_info()
 
 @app.get("/models/")
 async def get_available_models():
@@ -458,6 +474,85 @@ async def get_all_detected_classes():
         logger.error(f"Error getting detected classes: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+# ============================================================================
+# Violation Logging Endpoints
+# ============================================================================
+
+@app.post("/logging/toggle/")
+async def toggle_logging():
+    """Toggle violation logging on/off"""
+    try:
+        new_state = violation_logger.toggle_logging()
+        return {
+            "success": True,
+            "logging_enabled": new_state,
+            "message": f"Logging {'enabled' if new_state else 'disabled'}"
+        }
+    except Exception as e:
+        logger.error(f"Error toggling logging: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/logging/status/")
+async def get_logging_status():
+    """Get current logging status with statistics"""
+    stats = violation_logger.get_stats()
+    return {
+        "logging_enabled": violation_logger.is_logging_enabled(),
+        "cooldown_seconds": stats["cooldown_seconds"],
+        "active_violations": stats["active_violations"],
+        "log_folder": stats["log_folder"]
+    }
+
+@app.get("/logging/stats/")
+async def get_logging_stats():
+    """Get detailed logging statistics"""
+    return violation_logger.get_stats()
+
+@app.post("/logging/cooldown/")
+async def set_logging_cooldown(cooldown_seconds: int = Body(..., embed=True)):
+    """Set the cooldown period between violation logs"""
+    try:
+        if cooldown_seconds < 1:
+            raise HTTPException(status_code=400, detail="Cooldown must be at least 1 second")
+        if cooldown_seconds > 300:
+            raise HTTPException(status_code=400, detail="Cooldown cannot exceed 300 seconds (5 minutes)")
+        
+        violation_logger.set_cooldown(cooldown_seconds)
+        return {
+            "success": True,
+            "cooldown_seconds": cooldown_seconds,
+            "message": f"Cooldown set to {cooldown_seconds} seconds"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error setting cooldown: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/logging/enable/")
+async def enable_logging():
+    """Enable violation logging"""
+    violation_logger.enable_logging()
+    return {
+        "success": True,
+        "logging_enabled": True,
+        "message": "Logging enabled"
+    }
+
+@app.post("/logging/disable/")
+async def disable_logging():
+    """Disable violation logging"""
+    violation_logger.disable_logging()
+    return {
+        "success": True,
+        "logging_enabled": False,
+        "message": "Logging disabled"
+    }
+
+# ============================================================================
+# Webcam Stream Endpoints
+# ============================================================================
+
 # Global variable to control webcam stream
 webcam_active = False
 webcam_cap = None
@@ -496,6 +591,8 @@ def generate_webcam_frames():
     # Frame processing control
     frame_count = 0
     last_detection_time = time.time()
+    last_face_detection_time = 0  # Track last face detection to limit frequency
+    face_detection_interval = 2.0  # Only run face detection every 2 seconds
     
     # JPEG encoding parameters for better performance
     encode_params = [
@@ -513,6 +610,11 @@ def generate_webcam_frames():
             if not ret:
                 logger.warning("Failed to grab webcam frame")
                 break
+            
+            # Frame skipping for performance (optional)
+            if WEBCAM_SKIP_FRAMES > 0 and frame_count % (WEBCAM_SKIP_FRAMES + 1) != 0:
+                frame_count += 1
+                continue
             
             try:
                 frame_count += 1
@@ -549,11 +651,38 @@ def generate_webcam_frames():
                         # Check compliance
                         is_compliant, non_compliant_items, compliance_details = compliance_manager.check_compliance(results)
                         
+                        # If non-compliant and logging enabled, detect faces and log violation
+                        # BUT: Only run face detection periodically to avoid lag
+                        if not is_compliant and violation_logger.is_logging_enabled():
+                            # Rate limit face detection - only run every 2 seconds
+                            if current_time - last_face_detection_time >= face_detection_interval:
+                                last_face_detection_time = current_time
+                                
+                                # Convert frame to RGB for face detection
+                                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                                face_results = detect_and_identify_faces(frame_rgb)
+                                
+                                # Log the violation with both compliance and face detection (async, non-blocking)
+                                violation_logger.save_violation(
+                                    frame.copy(),
+                                    results,
+                                    face_results,
+                                    {
+                                        'is_compliant': is_compliant,
+                                        'non_compliant_items': non_compliant_items  # Already a list of class names
+                                    }
+                                )
+                                
+                                logger.info(f"Violation queued for logging: {len(non_compliant_items)} non-compliant items, {len(face_results)} faces detected")
+                        
                         # Draw bounding boxes
                         annotated_frame = draw_detections_on_frame(annotated_frame, results)
                         
                         # Small status indicator
-                        cv2.putText(annotated_frame, "DETECTING", (10, 30),
+                        status_text = "DETECTING"
+                        if violation_logger.is_logging_enabled():
+                            status_text += " + LOGGING"
+                        cv2.putText(annotated_frame, status_text, (10, 30),
                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
                     
                     # DISTANCE CHECK MODE: Show guidance, no detection
@@ -589,6 +718,30 @@ def generate_webcam_frames():
                     # Distance checker disabled - always run detection
                     results = detector.detect(frame, confidence_threshold=0.6)
                     is_compliant, non_compliant_items, compliance_details = compliance_manager.check_compliance(results)
+                    
+                    # If non-compliant and logging enabled, detect faces and log violation
+                    # Rate limit face detection to avoid lag
+                    if not is_compliant and violation_logger.is_logging_enabled():
+                        if current_time - last_face_detection_time >= face_detection_interval:
+                            last_face_detection_time = current_time
+                            
+                            # Convert frame to RGB for face detection
+                            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                            face_results = detect_and_identify_faces(frame_rgb)
+                            
+                            # Log the violation with both compliance and face detection (async, non-blocking)
+                            violation_logger.save_violation(
+                                frame.copy(),
+                                results,
+                                face_results,
+                                {
+                                    'is_compliant': is_compliant,
+                                    'non_compliant_items': non_compliant_items  # Already a list of class names
+                                }
+                            )
+                            
+                            logger.info(f"Violation queued for logging: {len(non_compliant_items)} non-compliant items, {len(face_results)} faces detected")
+                    
                     annotated_frame = draw_detections_on_frame(annotated_frame, results)
                 
                 # Encode frame as JPEG with optimized parameters

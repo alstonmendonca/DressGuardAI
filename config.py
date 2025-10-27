@@ -59,7 +59,8 @@ YOLO_IMAGE_SIZE = 640                # Input size for YOLO model
 WEBCAM_DETECTION_INTERVAL = 2.0      # Seconds between YOLO detections (only used when distance check disabled)
 WEBCAM_ENABLE_DISTANCE_CHECK = True  # Enable distance/position checking before detection
 WEBCAM_FPS_LIMIT = 100               # Max FPS for webcam stream (actual will be lower)
-WEBCAM_JPEG_QUALITY = 80             # JPEG quality (0-100, higher = better quality but slower)
+WEBCAM_JPEG_QUALITY = 75             # JPEG quality (0-100, lower = faster but lower quality)
+WEBCAM_SKIP_FRAMES = 0               # Skip N frames between processing (0 = process all frames, 1 = skip every other, 2 = skip 2 out of 3)
 
 # Distance Check Mode Switching
 WEBCAM_REQUIRED_GOOD_FRAMES = 5      # Good frames needed to start real-time detection

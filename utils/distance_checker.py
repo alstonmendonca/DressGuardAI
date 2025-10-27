@@ -78,17 +78,18 @@ class DistanceChecker:
         largest_face = max(faces, key=lambda f: f[2] * f[3])
         fx, fy, fw, fh = largest_face
         
-        # Calculate face metrics
+        # Calculate body metrics
         face_area = fw * fh
         frame_area = w * h
         face_ratio = face_area / frame_area
         
-        # Face position (should be in upper portion for full body)
+        # Face position (should be in upper portion for 3/4 body visibility)
         face_center_y = fy + (fh / 2)
         face_relative_y = face_center_y / h
         
-        # Calculate body estimation
-        estimated_body_height = fh * 7  # Rough estimate: body is ~7x head height
+        # Calculate body estimation (relaxed for 3/4 body instead of full body)
+        # For 3/4 body: ~5x head height instead of 7x
+        estimated_body_height = fh * 5  # Reduced from 7 for 3/4 body
         estimated_body_bottom = fy + estimated_body_height
         
         # Decision logic
@@ -98,7 +99,7 @@ class DistanceChecker:
         should_process = False
         
         # Face too large = too close
-        if face_ratio > 0.15:
+        if face_ratio > 0.18:  # Increased from 0.15 to allow closer
             message = "Step back - Too close to camera"
             confidence = 30
             
@@ -108,20 +109,20 @@ class DistanceChecker:
             confidence = 40
             
         # Face in middle/bottom = need to step back
-        elif face_relative_y > 0.4:
-            message = "Step back to show full outfit"
+        elif face_relative_y > 0.5:  # Increased from 0.4 to allow face to be lower
+            message = "Step back to show outfit"
             confidence = 45
             
-        # Body likely cut off at bottom
-        elif estimated_body_bottom > h * 0.95:
-            message = "Step back - Full outfit not visible"
+        # Body likely cut off at bottom (relaxed threshold for 3/4 visibility)
+        elif estimated_body_bottom > h * 1.05:  # Changed from 0.95 to 1.05 (allow bottom 5% to be cut off)
+            message = "Step back - More outfit should be visible"
             confidence = 50
             
         # Good distance!
         else:
             is_good_distance = True
             should_process = True
-            message = "Perfect! Full outfit visible"
+            message = "Good! 3/4 outfit visible"
             confidence = 85
         
         result = {
@@ -133,7 +134,7 @@ class DistanceChecker:
                 "faces_detected": len(faces),
                 "face_ratio": round(face_ratio, 4),
                 "face_relative_y": round(face_relative_y, 3),
-                "estimated_body_fits": estimated_body_bottom <= h * 0.95
+                "estimated_body_fits": estimated_body_bottom <= h * 1.05
             }
         }
         

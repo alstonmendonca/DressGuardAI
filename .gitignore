@@ -87,3 +87,15 @@ tmp/
 
 # Utility caches
 utils/__pycache__
+
+# Face Recognition Database (contains personal images)
+database/*
+!database/.gitkeep
+
+# Violation Logs (contains captured frames with faces)
+non_compliance_logs/
+frames/
+
+# Redis dump files
+dump.rdb
+*.rdb

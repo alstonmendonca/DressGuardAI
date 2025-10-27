@@ -1,9 +1,9 @@
 {
-  "compliant": [
-    "helmet"
-  ],
+  "compliant": [],
   "non_compliant": [
-    "no helmet"
+    "pants",
+    "t-shirt",
+    "shorts"
   ],
   "min_confidence": 0.5
 }
