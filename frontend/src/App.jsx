@@ -9,6 +9,7 @@ import DetectionList from './components/DetectionList';
 import MainFeed from "./components/MainFeed";
 import ModelPanel from './components/ModelPanel';
 import CompliancePanel from './components/CompliancePanel';
+import DeviceStatus from './components/DeviceStatus';
 import { logComplianceResults } from './utils/complianceLogger';
 
 function App() {
@@ -432,7 +433,10 @@ const stopIPCamera = () => {
       
 
       {/* Main Grid: 3 columns */}
-      <div className="min-h-screen bg-black text-green-400 font-mono grid grid-cols-3 gap-2">
+      <div className="min-h-screen bg-black text-green-400 font-mono grid grid-cols-3 gap-2 relative">
+
+        {/* Device Status Indicator - Top Right */}
+        <DeviceStatus />
 
         {/* === MAIN FEED (col-span-2) === */}
         <MainFeed

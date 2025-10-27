@@ -7,13 +7,13 @@ from detector import DressDetector
 from utils.compliance import is_compliant, ComplianceManager
 from utils.logger import setup_logging
 from utils.cache import get_cache
-from utils.distance_checker import get_distance_checker
 from utils.model_discovery import get_model_discovery
+from utils.visibility_checker import get_visibility_checker
 from utils.violation_logger import get_violation_logger
-from utils.face_recognition_utils import detect_and_identify_faces
-from config import (MODELS_FOLDER, WEBCAM_DETECTION_INTERVAL, WEBCAM_ENABLE_DISTANCE_CHECK, 
-                    WEBCAM_JPEG_QUALITY, WEBCAM_FPS_LIMIT, WEBCAM_REQUIRED_GOOD_FRAMES, 
-                    WEBCAM_ALLOWED_BAD_FRAMES, WEBCAM_SKIP_FRAMES)
+from utils.face_recognition_insightface import detect_and_identify_faces
+from config import (MODELS_FOLDER, WEBCAM_DETECTION_INTERVAL,
+                    WEBCAM_JPEG_QUALITY, WEBCAM_FPS_LIMIT, 
+                    WEBCAM_SKIP_FRAMES)
 import logging
 from typing import Optional, List
 import os
@@ -137,7 +137,34 @@ async def get_device_info():
             content={"error": "Detector not initialized"}
         )
     
-    return detector.get_device_info()
+    device_info = detector.get_device_info()
+    
+    # Add face detection device info
+    try:
+        from utils.face_recognition_insightface import get_face_app
+        face_app = get_face_app()
+        if face_app:
+            # Check if using GPU or CPU
+            face_device = "CPU"
+            try:
+                # InsightFace uses ONNX Runtime providers
+                import onnxruntime as ort
+                providers = ort.get_available_providers()
+                if 'CUDAExecutionProvider' in providers:
+                    face_device = "GPU (CUDA)"
+                elif 'CPUExecutionProvider' in providers:
+                    face_device = "CPU"
+            except:
+                face_device = "CPU"
+            
+            device_info["face_detection_device"] = face_device
+        else:
+            device_info["face_detection_device"] = "Not initialized"
+    except ImportError:
+        # Fallback to old face_recognition (always CPU)
+        device_info["face_detection_device"] = "CPU (dlib)"
+    
+    return device_info
 
 @app.get("/models/")
 async def get_available_models():
@@ -575,24 +602,17 @@ def generate_webcam_frames():
     webcam_cap.set(cv2.CAP_PROP_FPS, 30)
     webcam_cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Reduce buffer to minimize lag
     
-    logger.info("Webcam stream started with distance checking")
+    logger.info("Webcam stream started")
     webcam_active = True
-    
-    # Get distance checker instance (only if enabled)
-    distance_checker = get_distance_checker() if WEBCAM_ENABLE_DISTANCE_CHECK else None
-    
-    # State management
-    detection_mode = False  # False = distance checking, True = real-time detection
-    consecutive_good_frames = 0
-    consecutive_bad_frames = 0
-    required_good_frames = WEBCAM_REQUIRED_GOOD_FRAMES
-    allowed_bad_frames = WEBCAM_ALLOWED_BAD_FRAMES
     
     # Frame processing control
     frame_count = 0
-    last_detection_time = time.time()
-    last_face_detection_time = 0  # Track last face detection to limit frequency
-    face_detection_interval = 2.0  # Only run face detection every 2 seconds
+    logged_persons = set()  # Track logged persons in current session
+    last_face_detection_time = 0
+    face_detection_interval = 5.0  # Run face detection every 5 seconds
+    current_status = "LOADING"  # Track current operation status
+    last_logged_time = {}  # Track when each person was last logged {name: timestamp}
+    session_reset_timeout = 15.0  # Reset session tracking after 15 seconds of inactivity
     
     # JPEG encoding parameters for better performance
     encode_params = [
@@ -621,128 +641,174 @@ def generate_webcam_frames():
                 current_time = time.time()
                 annotated_frame = frame.copy()
                 
-                if distance_checker:
-                    # Check distance on every frame (lightweight)
-                    distance_result = distance_checker.check_distance(frame)
-                    
-                    # Mode switching logic
-                    if distance_result["should_process"]:
-                        consecutive_good_frames += 1
-                        consecutive_bad_frames = 0
-                        
-                        # Switch to detection mode after enough good frames
-                        if not detection_mode and consecutive_good_frames >= required_good_frames:
-                            detection_mode = True
-                            logger.info("Switched to DETECTION MODE - Real-time processing started")
-                    else:
-                        consecutive_bad_frames += 1
-                        consecutive_good_frames = 0
-                        
-                        # Switch back to distance mode after too many bad frames
-                        if detection_mode and consecutive_bad_frames >= allowed_bad_frames:
-                            detection_mode = False
-                            logger.info("Switched to DISTANCE CHECK MODE - Repositioning required")
-                    
-                    # DETECTION MODE: Real-time YOLO detection on every frame
-                    if detection_mode:
-                        # Run YOLO detection continuously
-                        results = detector.detect(frame, confidence_threshold=0.6)
-                        
-                        # Check compliance
-                        is_compliant, non_compliant_items, compliance_details = compliance_manager.check_compliance(results)
-                        
-                        # If non-compliant and logging enabled, detect faces and log violation
-                        # BUT: Only run face detection periodically to avoid lag
-                        if not is_compliant and violation_logger.is_logging_enabled():
-                            # Rate limit face detection - only run every 2 seconds
-                            if current_time - last_face_detection_time >= face_detection_interval:
-                                last_face_detection_time = current_time
-                                
-                                # Convert frame to RGB for face detection
-                                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                                face_results = detect_and_identify_faces(frame_rgb)
-                                
-                                # Log the violation with both compliance and face detection (async, non-blocking)
-                                violation_logger.save_violation(
-                                    frame.copy(),
-                                    results,
-                                    face_results,
-                                    {
-                                        'is_compliant': is_compliant,
-                                        'non_compliant_items': non_compliant_items  # Already a list of class names
-                                    }
-                                )
-                                
-                                logger.info(f"Violation queued for logging: {len(non_compliant_items)} non-compliant items, {len(face_results)} faces detected")
-                        
-                        # Draw bounding boxes
-                        annotated_frame = draw_detections_on_frame(annotated_frame, results)
-                        
-                        # Small status indicator
-                        status_text = "DETECTING"
-                        if violation_logger.is_logging_enabled():
-                            status_text += " + LOGGING"
-                        cv2.putText(annotated_frame, status_text, (10, 30),
-                                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-                    
-                    # DISTANCE CHECK MODE: Show guidance, no detection
-                    else:
-                        # Draw distance feedback
-                        annotated_frame = distance_checker.draw_distance_feedback(
-                            annotated_frame, 
-                            distance_result
-                        )
-                        
-                        # Show progress bar for mode switching
-                        if consecutive_good_frames > 0:
-                            progress = min(100, int((consecutive_good_frames / required_good_frames) * 100))
-                            bar_width = 200
-                            bar_height = 20
-                            bar_x = (annotated_frame.shape[1] - bar_width) // 2
-                            bar_y = annotated_frame.shape[0] - 50
-                            
-                            # Background
-                            cv2.rectangle(annotated_frame, (bar_x, bar_y), 
-                                        (bar_x + bar_width, bar_y + bar_height), 
-                                        (50, 50, 50), -1)
-                            # Progress
-                            cv2.rectangle(annotated_frame, (bar_x, bar_y), 
-                                        (bar_x + int(bar_width * progress / 100), bar_y + bar_height), 
-                                        (0, 255, 0), -1)
-                            # Text
-                            cv2.putText(annotated_frame, f"Starting detection: {progress}%", 
-                                      (bar_x, bar_y - 5),
-                                      cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+                # Reset session tracking if person hasn't been seen for a while
+                expired_persons = []
+                for person_name, last_time in last_logged_time.items():
+                    if current_time - last_time > session_reset_timeout:
+                        expired_persons.append(person_name)
                 
+                for person_name in expired_persons:
+                    if person_name in logged_persons:
+                        logged_persons.remove(person_name)
+                        del last_logged_time[person_name]
+                        logger.info(f"Session reset for {person_name} - can be logged again if they return")
+                
+                # Set initial status
+                current_status = "DETECTING"
+                
+                # Always run YOLO detection
+                results = detector.detect(frame, confidence_threshold=0.6)
+                is_compliant, non_compliant_items, compliance_details = compliance_manager.check_compliance(results)
+                
+                # Simple face detection every 5 seconds
+                if not is_compliant and violation_logger.is_logging_enabled():
+                    # Run face detection every 5 seconds
+                    if current_time - last_face_detection_time >= face_detection_interval:
+                        current_status = "SCANNING FACE..."
+                        last_face_detection_time = current_time
+                        
+                        # Convert frame to RGB for face detection
+                        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                        face_results = detect_and_identify_faces(frame_rgb)
+                        
+                        # Handle face detection
+                        if len(face_results) > 0:
+                            known_faces = [face for face in face_results if face.get('name') != 'Unknown']
+                            
+                            # Debug: Log what faces were detected
+                            detected_names = [f"{face.get('name')} ({face.get('confidence', 0):.1f}%)" for face in face_results]
+                            logger.info(f"Face detection results: {detected_names}")
+                            
+                            # Process first known face only (one person at a time)
+                            if known_faces:
+                                face_info = known_faces[0]
+                                name = face_info.get('name')
+                                confidence = face_info.get('confidence', 0)
+                                
+                                logger.info(f"Processing known face: {name} with confidence {confidence:.1f}%")
+                                
+                                # Check session tracking - only skip if logged very recently (within session timeout)
+                                should_skip = False
+                                if name in logged_persons:
+                                    time_since_logged = current_time - last_logged_time.get(name, 0)
+                                    if time_since_logged < session_reset_timeout:
+                                        # Still within session timeout - skip logging
+                                        should_skip = True
+                                        time_until_reset = session_reset_timeout - time_since_logged
+                                        current_status = f"{name} - Logged (resets in {int(time_until_reset)}s)"
+                                        logger.debug(f"{name} already logged this session, {int(time_until_reset)}s until reset")
+                                
+                                if not should_skip:
+                                    # Either first time or session timeout expired - can log/update
+                                    # Check if person was logged earlier today (from database)
+                                    if violation_logger._is_person_logged_today(name):
+                                        current_status = f"UPDATING: {name}..."
+                                        logger.info(f"Person {name} already logged today - deleting old log and replacing with new one")
+                                        # Delete previous log before saving new one
+                                        violation_logger._delete_previous_log(name)
+                                    else:
+                                        current_status = f"LOGGING: {name}..."
+                                    
+                                    logger.info(f"Saving violation - Face results being logged: {[(f.get('name'), f.get('confidence')) for f in face_results]}")
+                                    
+                                    # Log the violation (will replace if person was logged before)
+                                    violation_logger.save_violation(
+                                        frame.copy(),
+                                        results,
+                                        face_results,
+                                        {
+                                            'is_compliant': is_compliant,
+                                            'non_compliant_items': non_compliant_items
+                                        }
+                                    )
+                                    logger.info(f"✓ Violation logged: {name}, items: {non_compliant_items}")
+                                    logged_persons.add(name)
+                                    last_logged_time[name] = current_time  # Track when this person was logged
+                                    current_status = f"✓ LOGGED: {name}"
+                                    
+                                    # Warn if multiple people in frame
+                                    if len(known_faces) > 1:
+                                        other_names = [f.get('name') for f in known_faces[1:]]
+                                        logger.warning(f"Multiple people detected: {name} (logged), others: {other_names} (ignored)")
+                            else:
+                                # Only unknown faces detected - always log (don't replace, could be different people)
+                                if 'Unknown' not in logged_persons:
+                                    current_status = "LOGGING: Unknown..."
+                                    logger.info("Unknown person detected - logging violation")
+                                    violation_logger.save_violation(
+                                        frame.copy(),
+                                        results,
+                                        face_results,
+                                        {
+                                            'is_compliant': is_compliant,
+                                            'non_compliant_items': non_compliant_items
+                                        }
+                                    )
+                                    logged_persons.add('Unknown')
+                                    last_logged_time['Unknown'] = current_time
+                                    current_status = "✓ LOGGED: Unknown"
+                                else:
+                                    # Already logged Unknown in this session
+                                    time_since_logged = current_time - last_logged_time.get('Unknown', current_time)
+                                    time_until_reset = session_reset_timeout - time_since_logged
+                                    if time_until_reset > 0:
+                                        current_status = f"Unknown - Logged (resets in {int(time_until_reset)}s)"
+                                    else:
+                                        current_status = "Unknown - Already logged"
+                        else:
+                            current_status = "No face detected"
+                    else:
+                        # Waiting for next scan
+                        time_until_next = face_detection_interval - (current_time - last_face_detection_time)
+                        if len(logged_persons) > 0:
+                            tracked_names = ", ".join(logged_persons)
+                            current_status = f"LOGGED: {tracked_names}"
+                        else:
+                            current_status = f"Next scan in {int(time_until_next)}s"
+                
+                # Draw bounding boxes
+                annotated_frame = draw_detections_on_frame(annotated_frame, results)
+                
+                # Dynamic status indicator with color coding - TOP LEFT with background
+                status_text = current_status
+                
+                # Color coding based on status
+                if "LOADING" in status_text:
+                    status_color = (255, 165, 0)  # Orange - loading
+                elif "SCANNING" in status_text:
+                    status_color = (0, 255, 255)  # Cyan - scanning face
+                elif "LOGGING" in status_text:
+                    status_color = (255, 255, 0)  # Yellow - actively logging
+                elif "✓ LOGGED" in status_text or "LOGGED:" in status_text:
+                    status_color = (0, 255, 0)  # Green - successfully logged
+                elif "Already logged" in status_text or "Logged today" in status_text:
+                    status_color = (255, 165, 0)  # Orange - already logged
+                elif "Next scan" in status_text:
+                    status_color = (200, 200, 200)  # Light gray - waiting
+                elif "No face" in status_text:
+                    status_color = (0, 165, 255)  # Light blue - no face found
                 else:
-                    # Distance checker disabled - always run detection
-                    results = detector.detect(frame, confidence_threshold=0.6)
-                    is_compliant, non_compliant_items, compliance_details = compliance_manager.check_compliance(results)
-                    
-                    # If non-compliant and logging enabled, detect faces and log violation
-                    # Rate limit face detection to avoid lag
-                    if not is_compliant and violation_logger.is_logging_enabled():
-                        if current_time - last_face_detection_time >= face_detection_interval:
-                            last_face_detection_time = current_time
-                            
-                            # Convert frame to RGB for face detection
-                            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                            face_results = detect_and_identify_faces(frame_rgb)
-                            
-                            # Log the violation with both compliance and face detection (async, non-blocking)
-                            violation_logger.save_violation(
-                                frame.copy(),
-                                results,
-                                face_results,
-                                {
-                                    'is_compliant': is_compliant,
-                                    'non_compliant_items': non_compliant_items  # Already a list of class names
-                                }
-                            )
-                            
-                            logger.info(f"Violation queued for logging: {len(non_compliant_items)} non-compliant items, {len(face_results)} faces detected")
-                    
-                    annotated_frame = draw_detections_on_frame(annotated_frame, results)
+                    status_color = (0, 255, 0)  # Green - default detecting
+                
+                # Draw status with background for better visibility
+                h, w = annotated_frame.shape[:2]
+                font = cv2.FONT_HERSHEY_SIMPLEX
+                font_scale = 0.6
+                thickness = 2
+                (text_width, text_height), baseline = cv2.getTextSize(status_text, font, font_scale, thickness)
+                
+                # Background rectangle - top left
+                padding = 8
+                bg_x1, bg_y1 = 5, 5
+                bg_x2, bg_y2 = text_width + padding * 2, text_height + padding * 2
+                
+                overlay = annotated_frame.copy()
+                cv2.rectangle(overlay, (bg_x1, bg_y1), (bg_x2, bg_y2), (0, 0, 0), -1)
+                cv2.addWeighted(overlay, 0.7, annotated_frame, 0.3, 0, annotated_frame)
+                
+                # Status text
+                cv2.putText(annotated_frame, status_text, (padding, text_height + padding),
+                           font, font_scale, status_color, thickness)
                 
                 # Encode frame as JPEG with optimized parameters
                 ret, buffer = cv2.imencode('.jpg', annotated_frame, encode_params)

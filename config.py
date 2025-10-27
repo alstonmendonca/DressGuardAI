@@ -56,15 +56,11 @@ DEFAULT_CONFIDENCE_THRESHOLD = 0.25  # Lower threshold for YOLO inference
 YOLO_IMAGE_SIZE = 640                # Input size for YOLO model
 
 # Webcam Detection Settings
-WEBCAM_DETECTION_INTERVAL = 2.0      # Seconds between YOLO detections (only used when distance check disabled)
-WEBCAM_ENABLE_DISTANCE_CHECK = True  # Enable distance/position checking before detection
+WEBCAM_DETECTION_INTERVAL = 2.0      # Seconds between YOLO detections
+WEBCAM_ENABLE_DISTANCE_CHECK = False # Distance checking disabled - detection runs continuously
 WEBCAM_FPS_LIMIT = 100               # Max FPS for webcam stream (actual will be lower)
 WEBCAM_JPEG_QUALITY = 75             # JPEG quality (0-100, lower = faster but lower quality)
 WEBCAM_SKIP_FRAMES = 0               # Skip N frames between processing (0 = process all frames, 1 = skip every other, 2 = skip 2 out of 3)
-
-# Distance Check Mode Switching
-WEBCAM_REQUIRED_GOOD_FRAMES = 5      # Good frames needed to start real-time detection
-WEBCAM_ALLOWED_BAD_FRAMES = 10       # Bad frames allowed before returning to distance check
 
 # API Settings
 API_TITLE = "DressGuard API"

@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 class ViolationLogger:
     """Handles logging of compliance violations with face detection"""
     
-    def __init__(self, log_folder="non_compliance_logs", cooldown_seconds=7, min_face_confidence=47.0):
+    def __init__(self, log_folder="non_compliance_logs", cooldown_seconds=7, min_face_confidence=35.0):
         self.log_folder = log_folder
         self.logging_enabled = False
         self.cooldown_seconds = cooldown_seconds  # Cooldown period between logs
@@ -119,8 +119,27 @@ class ViolationLogger:
             except Exception as e:
                 logger.error(f"Error deleting previous image {filepath}: {e}")
         
-        # Remove text log entry (we'll update it with new violation)
-        # This is handled automatically when we append the new entry
+        # Remove from tracking
+        del self.logged_today[person_name]
+        self._save_daily_logs()
+    
+    def replace_unknown_with_identified(self, identified_name: str, items: List[str], new_filepath: str):
+        """
+        Replace an 'Unknown' log entry with identified person's details.
+        Deletes the old Unknown log and updates tracking.
+        
+        Args:
+            identified_name: The newly identified person's name
+            items: Non-compliant items detected
+            new_filepath: Path to the new violation image
+        """
+        # Delete any previous Unknown logs
+        if 'Unknown' in self.logged_today:
+            self._delete_previous_log('Unknown')
+            logger.info(f"Deleted Unknown log - person identified as: {identified_name}")
+        
+        # Mark new person as logged
+        self._mark_person_logged_today(identified_name, items, new_filepath)
     
     def _filter_faces_by_confidence(self, face_results: List[Dict]) -> List[Dict]:
         """
@@ -135,10 +154,17 @@ class ViolationLogger:
         filtered_faces = []
         for face in face_results:
             face_copy = face.copy()
+            original_name = face_copy['name']
+            confidence = face_copy['confidence']
+            
             # If confidence is below threshold, mark as Unknown
-            if face_copy['confidence'] < self.min_face_confidence:
+            if confidence < self.min_face_confidence:
+                logger.warning(f"Face confidence too low: {original_name} ({confidence:.1f}%) < {self.min_face_confidence}% - marking as Unknown")
                 face_copy['name'] = 'Unknown'
                 face_copy['user_id'] = None
+            else:
+                logger.info(f"Face confidence OK: {original_name} ({confidence:.1f}%) >= {self.min_face_confidence}%")
+            
             filtered_faces.append(face_copy)
         return filtered_faces
 
