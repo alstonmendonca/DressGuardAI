@@ -153,18 +153,24 @@ const stopIPCamera = () => {
     
     try {
       // Tell backend to stop the webcam
-      await fetch("/api/webcam/stop/", { method: "POST" });
-      console.log("Backend webcam stopped");
+      const response = await fetch("/api/webcam/stop/", { method: "POST" });
+      const data = await response.json();
+      console.log("Backend webcam stopped:", data);
+      
+      if (!response.ok) {
+        throw new Error(`Failed to stop webcam: ${data.message || response.statusText}`);
+      }
     } catch (err) {
       console.error("Error stopping webcam:", err);
+      alert(`Error stopping webcam: ${err.message}`);
     }
     
-    // Reset frontend state
+    // Reset frontend state regardless of backend response
     setActiveFeed(null);
     setDetections([]);
     isDetecting.current = false;
     
-    console.log("Webcam stopped");
+    console.log("Webcam stopped - activeFeed set to null");
   };
 
   // Simplified - no longer needed for backend streaming

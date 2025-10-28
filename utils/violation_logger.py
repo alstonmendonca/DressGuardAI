@@ -16,10 +16,10 @@ logger = logging.getLogger(__name__)
 class ViolationLogger:
     """Handles logging of compliance violations with face detection"""
     
-    def __init__(self, log_folder="non_compliance_logs", cooldown_seconds=7, min_face_confidence=35.0):
+    def __init__(self, log_folder="non_compliance_logs", cooldown_seconds=2, min_face_confidence=35.0):
         self.log_folder = log_folder
         self.logging_enabled = False
-        self.cooldown_seconds = cooldown_seconds  # Cooldown period between logs
+        self.cooldown_seconds = cooldown_seconds  # Cooldown period between logs (to prevent rapid spam)
         self.min_face_confidence = min_face_confidence  # Minimum confidence to identify a face
         
         # Track recent violations to prevent duplicate logging
@@ -240,9 +240,9 @@ class ViolationLogger:
         """
         Check if this violation should be logged based on:
         1. No faces detected - do not log
-        2. Daily limit - each known person logged once per day UNLESS violations changed
-        3. Unknown persons - can be logged multiple times (no daily limit)
-        4. Cooldown period for rapid re-detection
+        2. Cooldown period for rapid re-detection (to prevent spam)
+        
+        Note: Daily logging limits are handled by main.py session tracking
         
         Args:
             face_results: List of detected faces (after confidence filtering)
@@ -262,25 +262,7 @@ class ViolationLogger:
         # Cleanup old entries periodically
         self._cleanup_old_violations()
         
-        # Get identified persons (non-Unknown)
-        identified_persons = [face['name'] for face in face_results if face['name'] != 'Unknown']
-        unknown_count = sum(1 for face in face_results if face['name'] == 'Unknown')
-        
-        # Check if any identified person has already been logged today
-        if identified_persons:
-            for person_name in identified_persons:
-                if self._is_person_logged_today(person_name):
-                    # Person logged before - check if violations are different
-                    if self._has_different_violations(person_name, non_compliant_items):
-                        logger.info(f"Person {person_name} detected with DIFFERENT violations - will update log")
-                        # Delete previous log and allow new one
-                        return True, "Different violations detected - updating", True
-                    else:
-                        logger.info(f"Violation not logged: {person_name} already logged today with same violations")
-                        return False, f"Already logged today: {person_name}", False
-        
-        # If only Unknown persons, allow logging (no daily limit for Unknown)
-        # Check cooldown for rapid re-detection
+        # Check cooldown for rapid re-detection (spam prevention)
         violation_hash = self._generate_violation_hash(face_results, non_compliant_items)
         current_time = time.time()
         
@@ -295,6 +277,7 @@ class ViolationLogger:
         # Update timestamp for this violation
         self.recent_violations[violation_hash] = current_time
         
+        # Allow logging - main.py handles daily limits and session tracking
         return True, "Logging approved", False
     
     def save_violation(self, frame, detections, face_results, compliance_info):
@@ -312,18 +295,26 @@ class ViolationLogger:
             bool: True if queued for logging, False if not
         """
         if not self.logging_enabled:
+            logger.warning("save_violation: Logging is disabled")
             return False
         
         # Extract non-compliant items
         non_compliant_items = compliance_info.get('non_compliant_items', [])
         
+        logger.info(f"save_violation called - Original face_results: {[(f.get('name'), f.get('confidence')) for f in face_results]}")
+        
         # Filter faces by confidence threshold
         filtered_faces = self._filter_faces_by_confidence(face_results)
+        
+        logger.info(f"save_violation - After filtering: {[(f.get('name'), f.get('confidence')) for f in filtered_faces]}")
         
         # Check if we should log this violation (quick check, no I/O)
         with self.lock:
             should_log, reason, should_delete_previous = self._should_log_violation(filtered_faces, non_compliant_items)
+            logger.info(f"save_violation - should_log: {should_log}, reason: {reason}, should_delete_previous: {should_delete_previous}")
+            
             if not should_log:
+                logger.warning(f"save_violation: Not logging - {reason}")
                 return False
             
             # Check if queue is full to prevent memory buildup
@@ -573,7 +564,7 @@ class ViolationLogger:
 # Global instance
 _violation_logger = None
 
-def get_violation_logger(log_folder="non_compliance_logs", cooldown_seconds=10, min_face_confidence=47.0):
+def get_violation_logger(log_folder="non_compliance_logs", cooldown_seconds=2, min_face_confidence=35.0):
     """Get or create the global violation logger instance"""
     global _violation_logger
     if _violation_logger is None:

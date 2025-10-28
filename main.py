@@ -583,13 +583,66 @@ async def disable_logging():
 # Global variable to control webcam stream
 webcam_active = False
 webcam_cap = None
+selected_camera_index = 0  # Default to camera 0
+
+@app.get("/cameras/list/")
+async def list_cameras():
+    """List available cameras on the system"""
+    available_cameras = []
+    
+    # Try to detect up to 10 cameras
+    for i in range(10):
+        cap = cv2.VideoCapture(i)
+        if cap.isOpened():
+            # Get camera name/info if available
+            ret, frame = cap.read()
+            if ret:
+                available_cameras.append({
+                    "index": i,
+                    "name": f"Camera {i}",
+                    "resolution": f"{int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))}x{int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))}"
+                })
+            cap.release()
+    
+    logger.info(f"Found {len(available_cameras)} cameras")
+    return {"cameras": available_cameras}
+
+@app.post("/cameras/select/")
+async def select_camera(camera_index: int = Body(..., embed=True)):
+    """Select which camera to use for streaming"""
+    global selected_camera_index, webcam_active, webcam_cap
+    
+    # Validate camera index
+    test_cap = cv2.VideoCapture(camera_index)
+    if not test_cap.isOpened():
+        test_cap.release()
+        raise HTTPException(status_code=400, detail=f"Camera {camera_index} not available")
+    test_cap.release()
+    
+    # Stop current stream if active
+    if webcam_active:
+        webcam_active = False
+        if webcam_cap is not None:
+            webcam_cap.release()
+            webcam_cap = None
+        await asyncio.sleep(0.5)  # Give time for stream to stop
+    
+    # Update selected camera
+    selected_camera_index = camera_index
+    logger.info(f"Selected camera index: {camera_index}")
+    
+    return {
+        "success": True, 
+        "message": f"Camera {camera_index} selected",
+        "camera_index": camera_index
+    }
 
 def generate_webcam_frames():
     """Generate MJPEG frames from webcam with YOLO detection and distance checking"""
-    global webcam_cap, webcam_active
+    global webcam_cap, webcam_active, selected_camera_index
     
-    # Initialize webcam
-    webcam_cap = cv2.VideoCapture(0)
+    # Initialize webcam with selected camera index
+    webcam_cap = cv2.VideoCapture(selected_camera_index)
     
     if not webcam_cap.isOpened():
         logger.error("Could not open webcam")
@@ -609,10 +662,12 @@ def generate_webcam_frames():
     frame_count = 0
     logged_persons = set()  # Track logged persons in current session
     last_face_detection_time = 0
-    face_detection_interval = 5.0  # Run face detection every 5 seconds
+    face_detection_interval = 7.0  # Run face detection every 5 seconds
     current_status = "LOADING"  # Track current operation status
     last_logged_time = {}  # Track when each person was last logged {name: timestamp}
-    session_reset_timeout = 15.0  # Reset session tracking after 15 seconds of inactivity
+    session_reset_timeout = 20.0  # Reset session tracking after 20 seconds of inactivity
+    multiple_people_warning_time = 0  # Track when multiple people warning was shown
+    multiple_people_warning_duration = 3.0  # Show warning for 3 seconds
     
     # JPEG encoding parameters for better performance
     encode_params = [
@@ -673,88 +728,114 @@ def generate_webcam_frames():
                         
                         # Handle face detection
                         if len(face_results) > 0:
-                            known_faces = [face for face in face_results if face.get('name') != 'Unknown']
-                            
                             # Debug: Log what faces were detected
                             detected_names = [f"{face.get('name')} ({face.get('confidence', 0):.1f}%)" for face in face_results]
                             logger.info(f"Face detection results: {detected_names}")
                             
-                            # Process first known face only (one person at a time)
-                            if known_faces:
-                                face_info = known_faces[0]
-                                name = face_info.get('name')
-                                confidence = face_info.get('confidence', 0)
-                                
-                                logger.info(f"Processing known face: {name} with confidence {confidence:.1f}%")
-                                
-                                # Check session tracking - only skip if logged very recently (within session timeout)
-                                should_skip = False
-                                if name in logged_persons:
-                                    time_since_logged = current_time - last_logged_time.get(name, 0)
-                                    if time_since_logged < session_reset_timeout:
-                                        # Still within session timeout - skip logging
-                                        should_skip = True
-                                        time_until_reset = session_reset_timeout - time_since_logged
-                                        current_status = f"{name} - Logged (resets in {int(time_until_reset)}s)"
-                                        logger.debug(f"{name} already logged this session, {int(time_until_reset)}s until reset")
-                                
-                                if not should_skip:
-                                    # Either first time or session timeout expired - can log/update
-                                    # Check if person was logged earlier today (from database)
-                                    if violation_logger._is_person_logged_today(name):
-                                        current_status = f"UPDATING: {name}..."
-                                        logger.info(f"Person {name} already logged today - deleting old log and replacing with new one")
-                                        # Delete previous log before saving new one
-                                        violation_logger._delete_previous_log(name)
-                                    else:
-                                        current_status = f"LOGGING: {name}..."
-                                    
-                                    logger.info(f"Saving violation - Face results being logged: {[(f.get('name'), f.get('confidence')) for f in face_results]}")
-                                    
-                                    # Log the violation (will replace if person was logged before)
-                                    violation_logger.save_violation(
-                                        frame.copy(),
-                                        results,
-                                        face_results,
-                                        {
-                                            'is_compliant': is_compliant,
-                                            'non_compliant_items': non_compliant_items
-                                        }
-                                    )
-                                    logger.info(f"✓ Violation logged: {name}, items: {non_compliant_items}")
-                                    logged_persons.add(name)
-                                    last_logged_time[name] = current_time  # Track when this person was logged
-                                    current_status = f"✓ LOGGED: {name}"
-                                    
-                                    # Warn if multiple people in frame
-                                    if len(known_faces) > 1:
-                                        other_names = [f.get('name') for f in known_faces[1:]]
-                                        logger.warning(f"Multiple people detected: {name} (logged), others: {other_names} (ignored)")
+                            # Check if multiple people detected in frame
+                            if len(face_results) > 1:
+                                logger.warning(f"Multiple people detected in frame: {detected_names}")
+                                current_status = "⚠️ MULTIPLE PEOPLE DETECTED - Only one person should be in frame"
+                                multiple_people_warning_time = current_time
+                                # Don't process or log anything when multiple people detected
                             else:
-                                # Only unknown faces detected - always log (don't replace, could be different people)
-                                if 'Unknown' not in logged_persons:
-                                    current_status = "LOGGING: Unknown..."
-                                    logger.info("Unknown person detected - logging violation")
-                                    violation_logger.save_violation(
-                                        frame.copy(),
-                                        results,
-                                        face_results,
-                                        {
-                                            'is_compliant': is_compliant,
-                                            'non_compliant_items': non_compliant_items
-                                        }
-                                    )
-                                    logged_persons.add('Unknown')
-                                    last_logged_time['Unknown'] = current_time
-                                    current_status = "✓ LOGGED: Unknown"
+                                # Only one person detected - proceed with logging
+                                known_faces = [face for face in face_results if face.get('name') != 'Unknown']
+                                
+                                # Process first known face only (one person at a time)
+                                if known_faces:
+                                    face_info = known_faces[0]
+                                    name = face_info.get('name')
+                                    confidence = face_info.get('confidence', 0)
+                                    
+                                    logger.info(f"Processing known face: {name} with confidence {confidence:.1f}%")
+                                    
+                                    # If Unknown was logged but now we identified a known person, delete Unknown immediately
+                                    # This happens regardless of whether we log the known person or not
+                                    if 'Unknown' in logged_persons or violation_logger._is_person_logged_today('Unknown'):
+                                        logger.info(f"Known person {name} detected - deleting any Unknown logs (session cleanup)")
+                                        violation_logger._delete_previous_log('Unknown')
+                                        if 'Unknown' in logged_persons:
+                                            logged_persons.remove('Unknown')
+                                        if 'Unknown' in last_logged_time:
+                                            del last_logged_time['Unknown']
+                                    
+                                    # Check session tracking - only skip if logged very recently (within session timeout)
+                                    should_skip = False
+                                    if name in logged_persons:
+                                        time_since_logged = current_time - last_logged_time.get(name, 0)
+                                        if time_since_logged < session_reset_timeout:
+                                            # Still within session timeout - skip logging
+                                            should_skip = True
+                                            time_until_reset = session_reset_timeout - time_since_logged
+                                            current_status = f"{name} - Logged (resets in {int(time_until_reset)}s)"
+                                            logger.debug(f"{name} already logged this session, {int(time_until_reset)}s until reset")
+                                    
+                                    if not should_skip:
+                                        # Either first time or session timeout expired - can log/update
+                                        
+                                        # Check if person was logged earlier today (from database)
+                                        if violation_logger._is_person_logged_today(name):
+                                            current_status = f"UPDATING: {name}..."
+                                            logger.info(f"Person {name} already logged today - deleting old log and replacing with new one")
+                                            # Delete previous log before saving new one
+                                            violation_logger._delete_previous_log(name)
+                                        else:
+                                            current_status = f"LOGGING: {name}..."
+                                        
+                                        logger.info(f"About to save violation for {name}")
+                                        logger.info(f"Face results being passed to save_violation: {face_results}")
+                                        logger.info(f"Non-compliant items: {non_compliant_items}")
+                                        
+                                        # IMPORTANT: Only pass the known face we're logging, not all face_results
+                                        # This prevents Unknown faces from being saved when we detect a known person
+                                        known_face_only = [face_info]  # Only the first known face
+                                        logger.info(f"Filtered to known face only: {known_face_only}")
+                                        
+                                        # Log the violation (will replace if person was logged before)
+                                        save_result = violation_logger.save_violation(
+                                            frame.copy(),
+                                            results,
+                                            known_face_only,  # Pass only the known face, not all faces
+                                            {
+                                                'is_compliant': is_compliant,
+                                                'non_compliant_items': non_compliant_items
+                                            }
+                                        )
+                                        
+                                        if save_result:
+                                            logger.info(f"✓ Violation logged successfully: {name}, items: {non_compliant_items}")
+                                            logged_persons.add(name)
+                                            last_logged_time[name] = current_time  # Track when this person was logged
+                                            current_status = f"✓ LOGGED: {name}"
+                                        else:
+                                            logger.warning(f"✗ Violation NOT logged for {name} - save_violation returned False")
+                                            current_status = f"Failed to log: {name}"
                                 else:
-                                    # Already logged Unknown in this session
-                                    time_since_logged = current_time - last_logged_time.get('Unknown', current_time)
-                                    time_until_reset = session_reset_timeout - time_since_logged
-                                    if time_until_reset > 0:
-                                        current_status = f"Unknown - Logged (resets in {int(time_until_reset)}s)"
+                                    # Only unknown faces detected - always log (don't replace, could be different people)
+                                    if 'Unknown' not in logged_persons:
+                                        current_status = "LOGGING: Unknown..."
+                                        logger.info("Unknown person detected - logging violation")
+                                        violation_logger.save_violation(
+                                            frame.copy(),
+                                            results,
+                                            face_results,
+                                            {
+                                                'is_compliant': is_compliant,
+                                                'non_compliant_items': non_compliant_items
+                                            }
+                                        )
+                                        logged_persons.add('Unknown')
+                                        last_logged_time['Unknown'] = current_time
+                                        current_status = "✓ LOGGED: Unknown"
                                     else:
-                                        current_status = "Unknown - Already logged"
+                                        # Already logged Unknown in this session
+                                        time_since_logged = current_time - last_logged_time.get('Unknown', current_time)
+                                        time_until_reset = session_reset_timeout - time_since_logged
+                                        if time_until_reset > 0:
+                                            current_status = f"Unknown - Logged (resets in {int(time_until_reset)}s)"
+                                        else:
+                                            current_status = "Unknown - Already logged"
                         else:
                             current_status = "No face detected"
                     else:
@@ -906,7 +987,22 @@ async def webcam_stream():
 @app.post("/webcam/stop/")
 async def stop_webcam():
     """Stop the webcam stream"""
-    global webcam_active
+    global webcam_active, webcam_cap
+    
+    logger.info("Stop webcam request received")
     webcam_active = False
+    
+    # Give time for the stream to stop
+    await asyncio.sleep(0.5)
+    
+    # Release the camera if it's still open
+    if webcam_cap is not None:
+        try:
+            webcam_cap.release()
+            logger.info("Webcam released successfully")
+        except Exception as e:
+            logger.error(f"Error releasing webcam: {e}")
+        finally:
+            webcam_cap = None
     
     return {"success": True, "message": "Webcam stream stopped"}
