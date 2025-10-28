@@ -16,6 +16,7 @@ from config import (MODELS_FOLDER, WEBCAM_DETECTION_INTERVAL,
                     WEBCAM_SKIP_FRAMES)
 import logging
 from typing import Optional, List
+from datetime import datetime
 import os
 from contextlib import asynccontextmanager
 import asyncio
@@ -577,6 +578,486 @@ async def disable_logging():
     }
 
 # ============================================================================
+# Dashboard Endpoints - Get Logs, Filter, Delete
+# ============================================================================
+
+@app.get("/dashboard/logs/")
+async def get_logs(date: Optional[str] = None, page: int = 1, per_page: int = 10):
+    """
+    Get violation logs with pagination and optional date filtering.
+    
+    Args:
+        date: Optional date filter in YYYY-MM-DD format. If None, shows today's logs.
+        page: Page number (1-indexed)
+        per_page: Number of items per page
+    
+    Returns:
+        {
+            "logs": [...],
+            "total": int,
+            "page": int,
+            "per_page": int,
+            "total_pages": int,
+            "date": str
+        }
+    """
+    try:
+        # Default to today if no date specified
+        if not date:
+            date = datetime.now().strftime("%Y-%m-%d")
+        
+        # Get all log files
+        log_folder = violation_logger.log_folder
+        if not os.path.exists(log_folder):
+            return {
+                "logs": [],
+                "total": 0,
+                "page": page,
+                "per_page": per_page,
+                "total_pages": 0,
+                "date": date
+            }
+        
+        # Get all image files
+        all_files = [f for f in os.listdir(log_folder) if f.endswith('.jpg')]
+        
+        # Filter by date
+        filtered_files = []
+        target_date_prefix = date.replace("-", "")  # Convert 2025-10-28 to 20251028
+        
+        for filename in all_files:
+            # Extract date from filename (format: violation_YYYYMMDD_HHMMSS_mmm.jpg)
+            if filename.startswith("violation_"):
+                try:
+                    file_date = filename.split("_")[1]  # Get YYYYMMDD part
+                    if file_date == target_date_prefix:
+                        filtered_files.append(filename)
+                except:
+                    continue
+        
+        # Sort by timestamp (newest first)
+        filtered_files.sort(reverse=True)
+        
+        # Calculate pagination
+        total = len(filtered_files)
+        total_pages = (total + per_page - 1) // per_page if total > 0 else 0
+        start_idx = (page - 1) * per_page
+        end_idx = start_idx + per_page
+        
+        # Get page of files
+        page_files = filtered_files[start_idx:end_idx]
+        
+        # Load daily logs to get person names and violations
+        daily_logs = violation_logger.logged_today
+        
+        # Build response with metadata
+        logs = []
+        for filename in page_files:
+            filepath = os.path.join(log_folder, filename)
+            
+            # Extract timestamp from filename
+            try:
+                parts = filename.replace(".jpg", "").split("_")
+                date_part = parts[1]  # YYYYMMDD
+                time_part = parts[2]  # HHMMSS
+                ms_part = parts[3] if len(parts) > 3 else "000"  # mmm
+                
+                # Format timestamp
+                timestamp_str = f"{date_part[:4]}-{date_part[4:6]}-{date_part[6:8]} {time_part[:2]}:{time_part[2:4]}:{time_part[4:6]}.{ms_part}"
+                
+                # Find matching person in daily logs
+                person_name = "Unknown"
+                violations = []
+                
+                for person, log_info in daily_logs.items():
+                    if log_info.get("filepath") == filepath:
+                        person_name = person
+                        violations = log_info.get("items", [])
+                        break
+                
+                logs.append({
+                    "id": filename,
+                    "filename": filename,
+                    "timestamp": timestamp_str,
+                    "person": person_name,
+                    "violations": violations,
+                    "image_url": f"/api/dashboard/image/{filename}"
+                })
+            except Exception as e:
+                logger.error(f"Error processing file {filename}: {e}")
+                continue
+        
+        return {
+            "logs": logs,
+            "total": total,
+            "page": page,
+            "per_page": per_page,
+            "total_pages": total_pages,
+            "date": date
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting logs: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/dashboard/image/{filename}")
+async def get_log_image(filename: str):
+    """
+    Serve a specific log image file.
+    
+    Args:
+        filename: Name of the image file
+    
+    Returns:
+        FileResponse with the image
+    """
+    try:
+        filepath = os.path.join(violation_logger.log_folder, filename)
+        
+        if not os.path.exists(filepath):
+            raise HTTPException(status_code=404, detail="Image not found")
+        
+        # Security check - ensure filename doesn't contain path traversal
+        if ".." in filename or "/" in filename or "\\" in filename:
+            raise HTTPException(status_code=400, detail="Invalid filename")
+        
+        from fastapi.responses import FileResponse
+        return FileResponse(filepath, media_type="image/jpeg")
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error serving image {filename}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/dashboard/log/{filename}")
+async def delete_log(filename: str):
+    """
+    Delete a specific log entry and its image.
+    
+    Args:
+        filename: Name of the log file to delete
+    
+    Returns:
+        Success message
+    """
+    try:
+        filepath = os.path.join(violation_logger.log_folder, filename)
+        
+        # Security check
+        if ".." in filename or "/" in filename or "\\" in filename:
+            raise HTTPException(status_code=400, detail="Invalid filename")
+        
+        if not os.path.exists(filepath):
+            raise HTTPException(status_code=404, detail="Log not found")
+        
+        # Delete the image file
+        os.remove(filepath)
+        
+        # Remove from daily logs if present
+        daily_logs = violation_logger.logged_today.copy()
+        for person, log_info in list(daily_logs.items()):
+            if log_info.get("filepath") == filepath:
+                del violation_logger.logged_today[person]
+                violation_logger._save_daily_logs()
+                break
+        
+        logger.info(f"Deleted log: {filename}")
+        return {
+            "success": True,
+            "message": f"Log {filename} deleted successfully"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting log {filename}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/dashboard/logs/clear/{date}")
+async def clear_logs_by_date(date: str):
+    """
+    Clear all logs for a specific date.
+    
+    Args:
+        date: Date in YYYY-MM-DD format
+    
+    Returns:
+        Count of deleted logs
+    """
+    try:
+        log_folder = violation_logger.log_folder
+        if not os.path.exists(log_folder):
+            return {
+                "success": True,
+                "deleted_count": 0,
+                "message": "No logs found"
+            }
+        
+        # Get all image files for this date
+        target_date_prefix = date.replace("-", "")  # Convert 2025-10-28 to 20251028
+        deleted_count = 0
+        
+        for filename in os.listdir(log_folder):
+            if filename.startswith("violation_") and filename.endswith('.jpg'):
+                try:
+                    file_date = filename.split("_")[1]  # Get YYYYMMDD part
+                    if file_date == target_date_prefix:
+                        filepath = os.path.join(log_folder, filename)
+                        os.remove(filepath)
+                        deleted_count += 1
+                        
+                        # Remove from daily logs
+                        for person, log_info in list(violation_logger.logged_today.items()):
+                            if log_info.get("filepath") == filepath:
+                                del violation_logger.logged_today[person]
+                except Exception as e:
+                    logger.error(f"Error deleting file {filename}: {e}")
+                    continue
+        
+        # Save updated daily logs
+        if deleted_count > 0:
+            violation_logger._save_daily_logs()
+        
+        logger.info(f"Cleared {deleted_count} logs for date {date}")
+        return {
+            "success": True,
+            "deleted_count": deleted_count,
+            "message": f"Deleted {deleted_count} logs for {date}"
+        }
+        
+    except Exception as e:
+        logger.error(f"Error clearing logs for date {date}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/dashboard/dates/")
+async def get_available_dates():
+    """
+    Get list of dates that have logs available.
+    
+    Returns:
+        List of dates in YYYY-MM-DD format
+    """
+    try:
+        log_folder = violation_logger.log_folder
+        if not os.path.exists(log_folder):
+            return {"dates": []}
+        
+        # Get all unique dates from log files
+        dates_set = set()
+        
+        for filename in os.listdir(log_folder):
+            if filename.startswith("violation_") and filename.endswith('.jpg'):
+                try:
+                    file_date = filename.split("_")[1]  # Get YYYYMMDD part
+                    # Convert to YYYY-MM-DD format
+                    formatted_date = f"{file_date[:4]}-{file_date[4:6]}-{file_date[6:8]}"
+                    dates_set.add(formatted_date)
+                except:
+                    continue
+        
+        # Sort dates (newest first)
+        dates = sorted(list(dates_set), reverse=True)
+        
+        return {"dates": dates}
+        
+    except Exception as e:
+        logger.error(f"Error getting available dates: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/dashboard/report/{date}")
+async def generate_report(date: str):
+    """
+    Generate Excel report for a specific date with student details.
+    
+    Args:
+        date: Date in YYYY-MM-DD format
+    
+    Returns:
+        Excel file download with violation details
+    """
+    try:
+        import json
+        from io import BytesIO
+        from fastapi.responses import StreamingResponse
+        
+        try:
+            from openpyxl import Workbook
+            from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+        except ImportError:
+            raise HTTPException(
+                status_code=500, 
+                detail="openpyxl not installed. Run: pip install openpyxl"
+            )
+        
+        # Load student database
+        students_file = "students.json"
+        students_db = {}
+        if os.path.exists(students_file):
+            try:
+                with open(students_file, 'r') as f:
+                    students_db = json.load(f)
+            except Exception as e:
+                logger.error(f"Error loading students.json: {e}")
+        
+        # Get logs for this date
+        log_folder = violation_logger.log_folder
+        if not os.path.exists(log_folder):
+            raise HTTPException(status_code=404, detail="No logs found")
+        
+        # Filter files by date
+        target_date_prefix = date.replace("-", "")
+        violations = []
+        
+        for filename in os.listdir(log_folder):
+            if filename.startswith("violation_") and filename.endswith('.jpg'):
+                try:
+                    file_date = filename.split("_")[1]
+                    if file_date == target_date_prefix:
+                        # Extract timestamp
+                        time_part = filename.split("_")[2]
+                        timestamp = f"{file_date[:4]}-{file_date[4:6]}-{file_date[6:8]} {time_part[:2]}:{time_part[2:4]}:{time_part[4:6]}"
+                        
+                        # Find person and violations from daily logs
+                        filepath = os.path.join(log_folder, filename)
+                        person_name = "Unknown"
+                        items = []
+                        
+                        for person, log_info in violation_logger.logged_today.items():
+                            if log_info.get("filepath") == filepath:
+                                person_name = person
+                                items = log_info.get("items", [])
+                                break
+                        
+                        # Get student details
+                        student_info = students_db.get(person_name, {})
+                        
+                        violations.append({
+                            'person': person_name,
+                            'full_name': student_info.get('full_name', person_name),
+                            'usn': student_info.get('usn', 'N/A'),
+                            'department': student_info.get('department', 'N/A'),
+                            'branch': student_info.get('branch', 'N/A'),
+                            'email': student_info.get('email', 'N/A'),
+                            'timestamp': timestamp,
+                            'violations': ', '.join(items) if items else 'N/A',
+                            'image': filename
+                        })
+                except Exception as e:
+                    logger.error(f"Error processing file {filename}: {e}")
+                    continue
+        
+        if not violations:
+            raise HTTPException(status_code=404, detail=f"No violations found for {date}")
+        
+        # Sort by timestamp
+        violations.sort(key=lambda x: x['timestamp'])
+        
+        # Create Excel workbook
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Non-Compliance Report"
+        
+        # Define styles
+        header_font = Font(bold=True, color="FFFFFF", size=12)
+        header_fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
+        header_alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        
+        cell_alignment = Alignment(horizontal="left", vertical="top", wrap_text=True)
+        border = Border(
+            left=Side(style='thin'),
+            right=Side(style='thin'),
+            top=Side(style='thin'),
+            bottom=Side(style='thin')
+        )
+        
+        # Add title
+        ws.merge_cells('A1:I1')
+        title_cell = ws['A1']
+        title_cell.value = f"DressGuard Non-Compliance Report - {date}"
+        title_cell.font = Font(bold=True, size=16)
+        title_cell.alignment = Alignment(horizontal="center", vertical="center")
+        title_cell.fill = PatternFill(start_color="D9E1F2", end_color="D9E1F2", fill_type="solid")
+        ws.row_dimensions[1].height = 30
+        
+        # Add headers
+        headers = ['#', 'Full Name', 'USN', 'Department', 'Branch', 'Email', 'Timestamp', 'Violations', 'Image File']
+        for col_num, header in enumerate(headers, 1):
+            cell = ws.cell(row=2, column=col_num)
+            cell.value = header
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = header_alignment
+            cell.border = border
+        
+        ws.row_dimensions[2].height = 25
+        
+        # Set column widths
+        ws.column_dimensions['A'].width = 5
+        ws.column_dimensions['B'].width = 25
+        ws.column_dimensions['C'].width = 15
+        ws.column_dimensions['D'].width = 15
+        ws.column_dimensions['E'].width = 10
+        ws.column_dimensions['F'].width = 30
+        ws.column_dimensions['G'].width = 20
+        ws.column_dimensions['H'].width = 30
+        ws.column_dimensions['I'].width = 30
+        
+        # Add data rows
+        for idx, violation in enumerate(violations, 1):
+            row_num = idx + 2
+            row_data = [
+                idx,
+                violation['full_name'],
+                violation['usn'],
+                violation['department'],
+                violation['branch'],
+                violation['email'],
+                violation['timestamp'],
+                violation['violations'],
+                violation['image']
+            ]
+            
+            for col_num, value in enumerate(row_data, 1):
+                cell = ws.cell(row=row_num, column=col_num)
+                cell.value = value
+                cell.alignment = cell_alignment
+                cell.border = border
+            
+            ws.row_dimensions[row_num].height = 20
+        
+        # Add summary at bottom
+        summary_row = len(violations) + 4
+        ws.merge_cells(f'A{summary_row}:C{summary_row}')
+        summary_cell = ws[f'A{summary_row}']
+        summary_cell.value = f"Total Violations: {len(violations)}"
+        summary_cell.font = Font(bold=True, size=12)
+        summary_cell.fill = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
+        
+        # Generate Excel file in memory
+        excel_buffer = BytesIO()
+        wb.save(excel_buffer)
+        excel_buffer.seek(0)
+        
+        # Generate filename
+        safe_date = date.replace("-", "")
+        filename = f"DressGuard_Report_{safe_date}.xlsx"
+        
+        return StreamingResponse(
+            excel_buffer,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={
+                "Content-Disposition": f"attachment; filename={filename}"
+            }
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error generating report for {date}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ============================================================================
 # Webcam Stream Endpoints
 # ============================================================================
 
@@ -665,7 +1146,7 @@ def generate_webcam_frames():
     face_detection_interval = 7.0  # Run face detection every 5 seconds
     current_status = "LOADING"  # Track current operation status
     last_logged_time = {}  # Track when each person was last logged {name: timestamp}
-    session_reset_timeout = 20.0  # Reset session tracking after 20 seconds of inactivity
+    session_reset_timeout = 15.0  # Reset session tracking after 15 seconds of inactivity
     multiple_people_warning_time = 0  # Track when multiple people warning was shown
     multiple_people_warning_duration = 3.0  # Show warning for 3 seconds
     

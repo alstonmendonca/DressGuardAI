@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
-import { SaveIcon, AlertIcon, HistoryIcon, FileTextIcon } from "./Icons";
+import { SaveIcon, AlertIcon, DashboardIcon, FileTextIcon } from "./Icons";
 
-export default function ActionsPanel(){
+export default function ActionsPanel({ onOpenDashboard, onOpenReportGenerator }){
     const [loggingEnabled, setLoggingEnabled] = useState(false);
     const [loading, setLoading] = useState(false);
 
@@ -58,7 +58,10 @@ export default function ActionsPanel(){
             {loading ? 'Processing...' : loggingEnabled ? 'Stop Logging' : 'Start Logging'}
           </button>
 
-          <button className="bg-black border border-green-600 py-1 sm:py-2 hover:bg-green-900 transition text-xs sm:text-sm flex items-center justify-center gap-2">
+          <button 
+            onClick={onOpenReportGenerator}
+            className="bg-black border border-green-600 py-1 sm:py-2 hover:bg-green-900 transition text-xs sm:text-sm flex items-center justify-center gap-2"
+          >
             <FileTextIcon className="w-4 h-4" />
             Generate Report
           </button>
@@ -66,9 +69,12 @@ export default function ActionsPanel(){
             <AlertIcon className="w-4 h-4" />
             Set Alerts
           </button>
-          <button className="bg-black border border-green-600 py-1 sm:py-2 hover:bg-green-900 transition text-xs sm:text-sm flex items-center justify-center gap-2">
-            <HistoryIcon className="w-4 h-4" />
-            History
+          <button 
+            onClick={onOpenDashboard}
+            className="bg-black border border-green-600 py-1 sm:py-2 hover:bg-green-900 transition text-xs sm:text-sm flex items-center justify-center gap-2"
+          >
+            <DashboardIcon className="w-4 h-4" />
+            Dashboard
           </button>
         </div>
     );

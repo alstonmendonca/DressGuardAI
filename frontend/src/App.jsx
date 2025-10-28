@@ -10,6 +10,8 @@ import MainFeed from "./components/MainFeed";
 import ModelPanel from './components/ModelPanel';
 import CompliancePanel from './components/CompliancePanel';
 import DeviceStatus from './components/DeviceStatus';
+import Dashboard from './components/Dashboard';
+import ReportGenerator from './components/ReportGenerator';
 import { logComplianceResults } from './utils/complianceLogger';
 
 function App() {
@@ -27,6 +29,10 @@ function App() {
     isCompliant: true,
     nonCompliantItems: []
   });
+
+  // Dashboard state
+  const [isDashboardOpen, setIsDashboardOpen] = useState(false);
+  const [isReportGeneratorOpen, setIsReportGeneratorOpen] = useState(false);
 
   // References to DOM elements: canvas for drawing, img for size measurement
   const canvasRef = useRef(null);
@@ -484,7 +490,10 @@ const stopIPCamera = () => {
         <StatusPanel currentModel={currentModel}/>
 
         {/* === PANEL 6: Settings & Export (Bottom Right) === */}
-        <ActionsPanel/>
+        <ActionsPanel 
+          onOpenDashboard={() => setIsDashboardOpen(true)}
+          onOpenReportGenerator={() => setIsReportGeneratorOpen(true)}
+        />
 
         {/* === PANEL 7: Model Selection === */}
         <ModelPanel 
@@ -494,6 +503,18 @@ const stopIPCamera = () => {
 
         {/* === PANEL 8: Compliance Settings === */}
         <CompliancePanel currentModel={currentModel} />
+
+        {/* === Dashboard Modal === */}
+        <Dashboard 
+          isOpen={isDashboardOpen} 
+          onClose={() => setIsDashboardOpen(false)} 
+        />
+
+        {/* === Report Generator Modal === */}
+        <ReportGenerator 
+          isOpen={isReportGeneratorOpen} 
+          onClose={() => setIsReportGeneratorOpen(false)} 
+        />
 
       </div>
     </div>

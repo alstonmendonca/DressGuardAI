@@ -142,3 +142,8 @@ setuptools==80.9.0        # Python package build system
 face-recognition==1.3.0   # Face detection and recognition
 dlib==19.24.6             # Machine learning library (face-recognition dependency)
 redis==5.2.1              # Redis client for caching face encodings
+
+# ----------------------------------------------------------------------------
+# Excel Generation
+# ----------------------------------------------------------------------------
+openpyxl==3.1.5           # Excel file generation and manipulation
