@@ -577,6 +577,103 @@ async def disable_logging():
         "message": "Logging disabled"
     }
 
+@app.get("/system/status/")
+async def get_system_status():
+    """Get real-time system status information"""
+    import psutil
+    import json
+    from datetime import date
+    
+    try:
+        # Get model info
+        model_info = {
+            "name": detector.model_name if hasattr(detector, 'model_name') else "YOLO",
+            "device": "GPU" if detector.device == "cuda" else "CPU",
+            "status": "Active" if detector else "Inactive"
+        }
+        
+        # Get logging stats
+        log_stats = violation_logger.get_stats()
+        
+        # Count today's violations
+        today_count = 0
+        total_count = 0
+        log_folder = violation_logger.log_folder
+        
+        if os.path.exists(log_folder):
+            today_date = date.today().strftime("%Y%m%d")
+            all_files = [f for f in os.listdir(log_folder) if f.endswith('.jpg')]
+            total_count = len(all_files)
+            
+            for filename in all_files:
+                if filename.startswith("violation_"):
+                    try:
+                        file_date = filename.split("_")[1]
+                        if file_date == today_date:
+                            today_count += 1
+                    except:
+                        continue
+        
+        # Get student database count
+        student_count = 0
+        students_file = "students.json"
+        if os.path.exists(students_file):
+            try:
+                with open(students_file, 'r') as f:
+                    students_db = json.load(f)
+                    student_count = len(students_db)
+            except:
+                pass
+        
+        # Get system metrics
+        cpu_percent = psutil.cpu_percent(interval=0.1)
+        memory = psutil.virtual_memory()
+        
+        # Get GPU info if available
+        gpu_info = None
+        if detector.device == "cuda":
+            try:
+                import torch
+                if torch.cuda.is_available():
+                    gpu_info = {
+                        "name": torch.cuda.get_device_name(0),
+                        "memory_allocated": f"{torch.cuda.memory_allocated(0) / 1024**3:.2f} GB",
+                        "memory_reserved": f"{torch.cuda.memory_reserved(0) / 1024**3:.2f} GB",
+                        "memory_total": f"{torch.cuda.get_device_properties(0).total_memory / 1024**3:.2f} GB"
+                    }
+            except:
+                pass
+        
+        # Webcam status
+        webcam_status = "Active" if webcam_active else "Stopped"
+        
+        return {
+            "model": model_info,
+            "logging": {
+                "enabled": log_stats.get("logging_enabled", False),
+                "today_violations": today_count,
+                "total_violations": total_count,
+                "cooldown": log_stats.get("cooldown_seconds", 0)
+            },
+            "database": {
+                "students_enrolled": student_count
+            },
+            "system": {
+                "cpu_usage": f"{cpu_percent:.1f}%",
+                "memory_usage": f"{memory.percent:.1f}%",
+                "memory_available": f"{memory.available / 1024**3:.1f} GB"
+            },
+            "gpu": gpu_info,
+            "webcam": {
+                "status": webcam_status,
+                "selected_index": selected_camera_index if webcam_active else None
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting system status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 # ============================================================================
 # Dashboard Endpoints - Get Logs, Filter, Delete
 # ============================================================================
@@ -1065,6 +1162,24 @@ async def generate_report(date: str):
 webcam_active = False
 webcam_cap = None
 selected_camera_index = 0  # Default to camera 0
+multiple_people_warning_active = False  # Global flag for notification
+multiple_people_warning_timestamp = 0  # When the warning was triggered
+
+@app.get("/webcam/warning/")
+async def get_webcam_warning():
+    """Check if there's an active multiple people warning"""
+    global multiple_people_warning_active, multiple_people_warning_timestamp
+    
+    current_time = time.time()
+    
+    # Check if warning has expired (3 seconds)
+    if multiple_people_warning_active and (current_time - multiple_people_warning_timestamp) > 3.0:
+        multiple_people_warning_active = False
+    
+    return {
+        "warning_active": multiple_people_warning_active,
+        "message": "Multiple people detected - Only one person should be in frame" if multiple_people_warning_active else None
+    }
 
 @app.get("/cameras/list/")
 async def list_cameras():
@@ -1215,9 +1330,13 @@ def generate_webcam_frames():
                             
                             # Check if multiple people detected in frame
                             if len(face_results) > 1:
+                                global multiple_people_warning_active, multiple_people_warning_timestamp
                                 logger.warning(f"Multiple people detected in frame: {detected_names}")
                                 current_status = "⚠️ MULTIPLE PEOPLE DETECTED - Only one person should be in frame"
                                 multiple_people_warning_time = current_time
+                                # Set global warning flag for frontend notification
+                                multiple_people_warning_active = True
+                                multiple_people_warning_timestamp = current_time
                                 # Don't process or log anything when multiple people detected
                             else:
                                 # Only one person detected - proceed with logging

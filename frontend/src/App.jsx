@@ -12,6 +12,7 @@ import CompliancePanel from './components/CompliancePanel';
 import DeviceStatus from './components/DeviceStatus';
 import Dashboard from './components/Dashboard';
 import ReportGenerator from './components/ReportGenerator';
+import Notification from './components/Notification';
 import { logComplianceResults } from './utils/complianceLogger';
 
 function App() {
@@ -33,6 +34,9 @@ function App() {
   // Dashboard state
   const [isDashboardOpen, setIsDashboardOpen] = useState(false);
   const [isReportGeneratorOpen, setIsReportGeneratorOpen] = useState(false);
+  
+  // Notification state
+  const [notification, setNotification] = useState(null);
 
   // References to DOM elements: canvas for drawing, img for size measurement
   const canvasRef = useRef(null);
@@ -103,6 +107,33 @@ function App() {
     fetchCurrentModel();
     fetchAvailableModels();
   }, []);
+
+  // Poll for multiple people warning when webcam is active
+  useEffect(() => {
+    if (activeFeed !== 'webcam') return;
+    
+    const checkForWarnings = async () => {
+      try {
+        const response = await fetch("/api/webcam/warning/");
+        if (response.ok) {
+          const data = await response.json();
+          if (data.warning_active && data.message) {
+            setNotification({
+              message: data.message,
+              type: 'warning'
+            });
+          }
+        }
+      } catch (err) {
+        console.error("Failed to check warnings:", err);
+      }
+    };
+    
+    // Poll every 500ms when webcam is active
+    const interval = setInterval(checkForWarnings, 500);
+    
+    return () => clearInterval(interval);
+  }, [activeFeed]);
 
 
   const startIPCamera = (url) => {
@@ -515,6 +546,16 @@ const stopIPCamera = () => {
           isOpen={isReportGeneratorOpen} 
           onClose={() => setIsReportGeneratorOpen(false)} 
         />
+
+        {/* === Notification === */}
+        {notification && (
+          <Notification
+            message={notification.message}
+            type={notification.type}
+            duration={3000}
+            onClose={() => setNotification(null)}
+          />
+        )}
 
       </div>
     </div>

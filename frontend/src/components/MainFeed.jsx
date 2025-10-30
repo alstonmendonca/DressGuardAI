@@ -27,7 +27,7 @@ export default function MainFeed({
   }, [activeFeed, videoRef, setupWebcamStream]);
 
   return (
-    <div className="col-span-2 row-span-1 relative border-4 border-green-500 shadow-lg rounded overflow-hidden">
+  <div className="col-span-2 row-span-1 relative border-4 border-green-500 shadow-lg rounded overflow-hidden">
       {/* --- IMAGE MODE --- */}
       {activeFeed === "image" && imageURL ? (
         <>
@@ -94,6 +94,10 @@ export default function MainFeed({
           <span className="text-green-600">Upload an image or video</span>
         </div>
       )}
+      {/* Small guidance label below the main feed */}
+      <div className="absolute bottom-2 left-1/2 transform -translate-x-1/2 bg-black bg-opacity-60 text-white text-xs md:text-sm px-3 py-1 rounded pointer-events-none">
+        STAND AT A PROPER DISTANCE FROM THE CAMERA
+      </div>
     </div>
   );
 }
