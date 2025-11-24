@@ -244,6 +244,44 @@ async def detect_dress(file: UploadFile = File(...), model: Optional[str] = None
         
         logger.info(f"Detection complete: {len(detected_clothes)} items found, compliant: {compliant}")
 
+        # Initialize face detection results
+        face_results = []
+        violation_logged = False
+        
+        # If non-compliant and logging is enabled, perform face detection and log violation
+        if not compliant and violation_logger.is_logging_enabled():
+            try:
+                # Convert to RGB for face detection
+                image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+                face_results = detect_and_identify_faces(image_rgb)
+                
+                if face_results:
+                    detected_names = [f"{face.get('name')} ({face.get('confidence', 0):.1f}%)" for face in face_results]
+                    logger.info(f"Face detection results for uploaded image: {detected_names}")
+                    
+                    # Check for multiple people
+                    if len(face_results) > 1:
+                        logger.warning(f"Multiple people detected in uploaded image: {detected_names}")
+                        # Still log the violation but include warning in response
+                    
+                    # Log the violation with face detection
+                    violation_logged = violation_logger.save_violation(
+                        image.copy(),
+                        detected_clothes,
+                        face_results,
+                        {
+                            'is_compliant': compliant,
+                            'non_compliant_items': non_compliant_items
+                        }
+                    )
+                    
+                    if violation_logged:
+                        logger.info(f"✓ Violation logged for uploaded image: {[f.get('name') for f in face_results]}")
+                else:
+                    logger.info("No faces detected in uploaded image - violation not logged")
+            except Exception as e:
+                logger.error(f"Error during face detection/logging for uploaded image: {e}", exc_info=True)
+
         return {
             "clothes_detected": detected_clothes,
             "image_width": w,
@@ -252,7 +290,9 @@ async def detect_dress(file: UploadFile = File(...), model: Optional[str] = None
             "non_compliant_items": non_compliant_items,
             "compliance_details": compliance_details,
             "model_used": detector.current_model,
-            "total_detections": len(detected_clothes)
+            "total_detections": len(detected_clothes),
+            "faces_detected": len(face_results),
+            "violation_logged": violation_logged
         }
         
     except HTTPException:

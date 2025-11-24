@@ -422,12 +422,12 @@ class ViolationLogger:
             if len(bbox) != 4:
                 continue
             
-            # Denormalize coordinates
+            # Bbox from detector is already in pixel coordinates, just convert to int
             x_min, y_min, x_max, y_max = bbox
-            x_min = int(x_min * w)
-            y_min = int(y_min * h)
-            x_max = int(x_max * w)
-            y_max = int(y_max * h)
+            x_min = int(x_min)
+            y_min = int(y_min)
+            x_max = int(x_max)
+            y_max = int(y_max)
             
             # Color based on compliance
             if class_name in non_compliant_items:

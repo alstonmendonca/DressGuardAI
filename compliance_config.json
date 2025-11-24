@@ -1,14 +1,14 @@
 {
   "compliant": [
+    "full sleeves shirt",
+    "half sleeves shirt",
     "pants",
     "id card",
-    "kurti",
-    "half sleeves shirt"
+    "kurti"
   ],
   "non_compliant": [
     "t-shirt",
-    "shorts",
-    "full sleeves shirt"
+    "shorts"
   ],
   "min_confidence": 0.5
 }

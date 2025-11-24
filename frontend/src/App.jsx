@@ -31,6 +31,9 @@ function App() {
     nonCompliantItems: []
   });
 
+  // Detection status for images/videos
+  const [detectionStatus, setDetectionStatus] = useState(null);
+
   // Dashboard state
   const [isDashboardOpen, setIsDashboardOpen] = useState(false);
   const [isReportGeneratorOpen, setIsReportGeneratorOpen] = useState(false);
@@ -234,6 +237,7 @@ const stopIPCamera = () => {
   if (file.type.startsWith("image/")) {
     setImageURL(url);
     setActiveFeed('image');
+    setDetectionStatus('DETECTING...');
 
     const formData = new FormData();
     formData.append("file", file);
@@ -254,10 +258,22 @@ const stopIPCamera = () => {
           nonCompliantItems: data.non_compliant_items || []
         });
         
+        // Update status based on results
+        if (data.faces_detected > 0) {
+          setDetectionStatus(`✓ DETECTED • ${data.faces_detected} face${data.faces_detected > 1 ? 's' : ''} identified`);
+        } else if (!data.compliant) {
+          setDetectionStatus('✓ DETECTED • No faces found');
+        } else {
+          setDetectionStatus('✓ DETECTED • Compliant');
+        }
+        
         logComplianceResults(data, "Image");
+      } else {
+        setDetectionStatus('✗ Detection failed');
       }
     } catch (err) {
       console.error("Detection error:", err);
+      setDetectionStatus('✗ Detection error');
     }
   } 
   else if (file.type.startsWith("video/")) {
@@ -499,6 +515,8 @@ const stopIPCamera = () => {
             console.log("Starting detection loop");
             requestAnimationFrame(captureAndDetectLoop);
           }}
+          detectionStatus={detectionStatus}
+          setDetectionStatus={setDetectionStatus}
         />
 
         {/* === DETECTION LIST (right column, top) === */}

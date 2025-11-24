@@ -16,6 +16,8 @@ export default function MainFeed({
   setupWebcamStream,   
   onWebcamStreamStart,
   currentModel, // Add currentModel to props
+  detectionStatus,
+  setDetectionStatus,
 }) {
   const [isStreaming, setIsStreaming] = useState(false);
 
@@ -28,6 +30,21 @@ export default function MainFeed({
 
   return (
   <div className="col-span-2 row-span-1 relative border-4 border-green-500 shadow-lg rounded overflow-hidden">
+      {/* Status Bar for Images/Videos */}
+      {(activeFeed === "image" || activeFeed === "video") && detectionStatus && (
+        <div className="absolute top-2 left-2 bg-black bg-opacity-80 px-4 py-2 rounded z-10">
+          <span className={
+            detectionStatus.includes('DETECTING') 
+              ? 'text-yellow-400 font-semibold' 
+              : detectionStatus.includes('✓') 
+                ? 'text-green-400 font-semibold' 
+                : 'text-red-400 font-semibold'
+          }>
+            {detectionStatus}
+          </span>
+        </div>
+      )}
+      
       {/* --- IMAGE MODE --- */}
       {activeFeed === "image" && imageURL ? (
         <>
@@ -61,7 +78,8 @@ export default function MainFeed({
                   setDetections,
                   drawBoxes,
                   detections,
-                  currentModel, // Add currentModel to props
+                  currentModel,
+                  setDetectionStatus,
                 });
               });
             }}

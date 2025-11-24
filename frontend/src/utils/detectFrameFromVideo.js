@@ -43,11 +43,17 @@ export default function detectFrameFromVideo({
   drawBoxes,
   detections,
   currentModel,
-  retryCount = 0
+  retryCount = 0,
+  setDetectionStatus
 }) {
   // Prevent concurrent detections
   if (isDetecting.current) return;
   isDetecting.current = true;
+  
+  // Set status to detecting
+  if (setDetectionStatus) {
+    setDetectionStatus('DETECTING...');
+  }
 
   const video = videoRef.current;
   const displayCanvas = canvasRef.current;
@@ -122,7 +128,7 @@ export default function detectFrameFromVideo({
               detectFrameFromVideo({
                 imageRef, videoRef, activeFeed, canvasRef,
                 isDetecting, setDetections, drawBoxes, detections,
-                currentModel, retryCount: retryCount + 1
+                currentModel, retryCount: retryCount + 1, setDetectionStatus
               });
             }, 1000);
             return;
@@ -141,6 +147,17 @@ export default function detectFrameFromVideo({
         
         // Update detections
         setDetections(filteredDetections);
+        
+        // Update status based on results
+        if (setDetectionStatus) {
+          if (data.faces_detected > 0) {
+            setDetectionStatus(`✓ DETECTED • ${data.faces_detected} face${data.faces_detected > 1 ? 's' : ''} identified`);
+          } else if (!data.compliant) {
+            setDetectionStatus('✓ DETECTED • No faces found');
+          } else {
+            setDetectionStatus('✓ DETECTED • Compliant');
+          }
+        }
         
         // Log compliance (throttled in parent component)
         logComplianceResults(data, "Video Frame");
@@ -173,7 +190,7 @@ export default function detectFrameFromVideo({
             detectFrameFromVideo({
               imageRef, videoRef, activeFeed, canvasRef,
               isDetecting, setDetections, drawBoxes, detections,
-              currentModel, retryCount: retryCount + 1
+              currentModel, retryCount: retryCount + 1, setDetectionStatus
             });
           }, 1000);
           return;

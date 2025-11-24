@@ -13,11 +13,12 @@ class ComplianceManager:
     def __init__(self, config_file: str = "compliance_config.json"):
         """Initialize compliance manager with optional persistent storage"""
         self.config_file = config_file
-        self.compliant_classes = set(COMPLIANT_CLOTHES)
-        self.non_compliant_classes = set(NON_COMPLIANT_CLOTHES)
+        # Normalize all class names to lowercase for case-insensitive matching
+        self.compliant_classes = set(c.lower().strip() for c in COMPLIANT_CLOTHES)
+        self.non_compliant_classes = set(c.lower().strip() for c in NON_COMPLIANT_CLOTHES)
         self.min_confidence = COMPLIANCE_RULES.get("min_confidence", 0.5)
         
-        # Load from file if exists
+        # Load from file if exists (will override with normalized values)
         self.load_config()
     
     def load_config(self):
@@ -26,10 +27,13 @@ class ComplianceManager:
             try:
                 with open(self.config_file, 'r') as f:
                     config = json.load(f)
-                    self.compliant_classes = set(config.get("compliant", []))
-                    self.non_compliant_classes = set(config.get("non_compliant", []))
+                    # Normalize all class names to lowercase for case-insensitive matching
+                    self.compliant_classes = set(c.lower().strip() for c in config.get("compliant", []))
+                    self.non_compliant_classes = set(c.lower().strip() for c in config.get("non_compliant", []))
                     self.min_confidence = config.get("min_confidence", 0.5)
                     logger.info(f"Loaded compliance config from {self.config_file}")
+                    logger.info(f"Compliant classes: {self.compliant_classes}")
+                    logger.info(f"Non-compliant classes: {self.non_compliant_classes}")
             except Exception as e:
                 logger.error(f"Error loading compliance config: {e}")
     
