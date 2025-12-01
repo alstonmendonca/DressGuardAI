@@ -3,9 +3,7 @@ import { XIcon, FileTextIcon, CalendarIcon } from "./Icons";
 
 export default function ReportGenerator({ isOpen, onClose }) {
     const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
-    const [selectedModel, setSelectedModel] = useState('all');
     const [availableDates, setAvailableDates] = useState([]);
-    const [availableModels, setAvailableModels] = useState([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
     const [whatsappStatus, setWhatsappStatus] = useState({ enabled: false, configured: false });
@@ -14,22 +12,9 @@ export default function ReportGenerator({ isOpen, onClose }) {
     useEffect(() => {
         if (isOpen) {
             fetchAvailableDates();
-            fetchAvailableModels();
             checkWhatsappStatus();
         }
     }, [isOpen]);
-
-    const fetchAvailableModels = async () => {
-        try {
-            const response = await fetch("/api/dashboard/models/");
-            if (response.ok) {
-                const data = await response.json();
-                setAvailableModels(data.models);
-            }
-        } catch (err) {
-            console.error("Error fetching models:", err);
-        }
-    };
 
     const checkWhatsappStatus = async () => {
         try {
@@ -64,8 +49,7 @@ export default function ReportGenerator({ isOpen, onClose }) {
         setError(null);
 
         try {
-            const modelParam = selectedModel && selectedModel !== 'all' ? `?model=${encodeURIComponent(selectedModel)}` : '';
-            const response = await fetch(`/api/dashboard/report/${selectedDate}${modelParam}`);
+            const response = await fetch(`/api/dashboard/report/${selectedDate}`);
             
             if (!response.ok) {
                 const errorData = await response.json();
@@ -109,13 +93,9 @@ export default function ReportGenerator({ isOpen, onClose }) {
             setLoading(false);
         }
     };
+
     const handleDateChange = (e) => {
         setSelectedDate(e.target.value);
-        setError(null);
-    };
-
-    const handleModelChange = (e) => {
-        setSelectedModel(e.target.value);
         setError(null);
     };
 
@@ -129,10 +109,7 @@ export default function ReportGenerator({ isOpen, onClose }) {
                 headers: {
                     "Content-Type": "application/json",
                 },
-                body: JSON.stringify({ 
-                    date: selectedDate,
-                    model: selectedModel && selectedModel !== 'all' ? selectedModel : null
-                })
+                body: JSON.stringify({ date: selectedDate })
             });
 
             const data = await response.json();
@@ -179,7 +156,7 @@ export default function ReportGenerator({ isOpen, onClose }) {
                     </p>
 
                     {/* Date Selection */}
-                    <div className="mb-4">
+                    <div className="mb-6">
                         <label className="block text-green-300 text-sm font-semibold mb-2">
                             Select Date:
                         </label>
@@ -211,68 +188,6 @@ export default function ReportGenerator({ isOpen, onClose }) {
                                             {date === new Date().toISOString().split('T')[0] ? `${date} (Today)` : date}
                                         </option>
                                     ))}
-                                </select>
-                            </div>
-                        )}
-
-                        {availableDates.length === 0 && (
-                            <p className="text-yellow-400 text-xs mt-2">
-                                No violation logs found. Start detecting to generate reports.
-                            </p>
-                        )}
-                    </div>
-
-                    {/* Model Selection */}
-                    <div className="mb-6">
-                        <label className="block text-green-300 text-sm font-semibold mb-2">
-                            Select Model:
-                        </label>
-                        <select
-                            value={selectedModel}
-                            onChange={handleModelChange}
-                            className="w-full bg-black border border-green-600 text-green-200 px-3 py-2 rounded focus:outline-none focus:border-green-400"
-                        >
-                            <option value="all">All Models</option>
-                            {availableModels.map(model => (
-                                <option key={model} value={model}>
-                                    {model}
-                                </option>
-                            ))}
-                        </select>
-                        <p className="text-green-500 text-xs mt-1">
-                            Reports will only include violations from the selected model
-                        </p>
-                    </div>
-
-                    {/* Error Message */}
-                    {error && (
-                        <div className="mb-4 p-3 bg-red-900 bg-opacity-50 border border-red-500 rounded">
-                            <p className="text-red-200 text-sm">{error}</p>
-                        </div>
-                    )}
-
-                    {/* Report Details */}
-                    <div className="bg-green-900 bg-opacity-30 border border-green-700 rounded p-3 mb-6">
-                        <h3 className="text-green-300 text-sm font-semibold mb-2">Report will include:</h3>
-                        <ul className="text-green-400 text-xs space-y-1">
-                            <li>• Student full name and USN</li>
-                            <li>• Department and branch</li>
-                            <li>• Email address</li>
-                            <li>• Violation timestamp</li>
-                            <li>• Non-compliant items</li>
-                            <li>• Detection model used</li>
-                            <li>• License plates (for Vehicle Helmet model)</li>
-                            <li>• Reference image filename</li>
-                        </ul>
-                        {selectedModel !== 'all' && (
-                            <div className="mt-2 pt-2 border-t border-green-700">
-                                <p className="text-yellow-400 text-xs">
-                                    ⚠️ Filtering by: <span className="font-semibold">{selectedModel}</span>
-                                </p>
-                            </div>
-                        )}
-                    </div>
-
                     {/* Action Buttons */}
                     <div className="flex flex-col gap-3">
                         {/* Primary Action Buttons */}
@@ -323,6 +238,37 @@ export default function ReportGenerator({ isOpen, onClose }) {
                                 💡 Configure Twilio credentials in config.py to enable WhatsApp reports
                             </p>
                         )}
+                    </div>  <li>• Student full name and USN</li>
+                            <li>• Department and branch</li>
+                            <li>• Email address</li>
+                            <li>• Violation timestamp</li>
+                            <li>• Non-compliant items</li>
+                            <li>• Reference image filename</li>
+                        </ul>
+                    </div>
+
+                    {/* Action Buttons */}
+                    <div className="flex gap-3">
+                        <button
+                            onClick={handleGenerateReport}
+                            disabled={loading || availableDates.length === 0}
+                            className={`flex-1 py-2 px-4 rounded font-semibold flex items-center justify-center gap-2 transition ${
+                                loading || availableDates.length === 0
+                                    ? 'bg-gray-700 border border-gray-600 text-gray-400 cursor-not-allowed'
+                                    : 'bg-green-700 border border-green-500 text-green-100 hover:bg-green-600'
+                            }`}
+                        >
+                            <FileTextIcon className="w-5 h-5" />
+                            {loading ? 'Generating...' : 'Generate Excel Report'}
+                        </button>
+                        
+                        <button
+                            onClick={onClose}
+                            disabled={loading}
+                            className="px-4 py-2 bg-black border border-green-600 text-green-300 rounded hover:bg-green-900 transition disabled:opacity-50"
+                        >
+                            Cancel
+                        </button>
                     </div>
                 </div>
             </div>

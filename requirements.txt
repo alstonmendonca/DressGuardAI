@@ -147,3 +147,19 @@ redis==5.2.1              # Redis client for caching face encodings
 # Excel Generation
 # ----------------------------------------------------------------------------
 openpyxl==3.1.5           # Excel file generation and manipulation
+
+# ----------------------------------------------------------------------------
+# OCR - License Plate Recognition
+# ----------------------------------------------------------------------------
+easyocr==1.7.2            # EasyOCR - Ready-to-use OCR with GPU support
+# Uses deep learning models for text detection and recognition
+# Supports 80+ languages with automatic model downloading
+# Excellent for license plates with preprocessing pipeline
+# Includes CRAFT text detection + recognition models
+
+# ----------------------------------------------------------------------------
+# WhatsApp Integration (Direct - No Twilio)
+# ----------------------------------------------------------------------------
+# Note: Python implementation uses WhatsApp Web protocol
+# For this to work, you'll need Node.js service running alongside
+# Or use a pure Python alternative like yowsup (deprecated) or pywhatkit

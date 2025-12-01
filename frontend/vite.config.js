@@ -17,6 +17,18 @@ export default defineConfig(({ mode }) => {
           target: env.VITE_API_BASE || 'http://localhost:8000',
           changeOrigin: true,
           rewrite: (path) => path.replace(/^\/api/, '')
+        },
+        '/dashboard': {
+          target: env.VITE_API_BASE || 'http://localhost:8000',
+          changeOrigin: true
+        },
+        '/logging': {
+          target: env.VITE_API_BASE || 'http://localhost:8000',
+          changeOrigin: true
+        },
+        '/face-detection': {
+          target: env.VITE_API_BASE || 'http://localhost:8000',
+          changeOrigin: true
         }
       }
     }

@@ -11,18 +11,23 @@ class ComplianceManager:
     """Manages compliance rules with ability to dynamically update them"""
     
     def __init__(self, config_file: str = "compliance_config.json"):
-        """Initialize compliance manager with optional persistent storage"""
+        """Initialize compliance manager with single global config (stable across models)"""
         self.config_file = config_file
+        self.current_model = None  # Track current model
+        
         # Normalize all class names to lowercase for case-insensitive matching
         self.compliant_classes = set(c.lower().strip() for c in COMPLIANT_CLOTHES)
         self.non_compliant_classes = set(c.lower().strip() for c in NON_COMPLIANT_CLOTHES)
         self.min_confidence = COMPLIANCE_RULES.get("min_confidence", 0.5)
         
-        # Load from file if exists (will override with normalized values)
+        # Load from global config file if exists (single config for all models)
         self.load_config()
     
-    def load_config(self):
-        """Load compliance configuration from file"""
+    def load_config(self, model_name: str = None):
+        """Load compliance configuration from global config file (stable across models)"""
+        # Always use the global config file, ignore model_name parameter
+        self.current_model = model_name
+        
         if os.path.exists(self.config_file):
             try:
                 with open(self.config_file, 'r') as f:
@@ -36,13 +41,16 @@ class ComplianceManager:
                     logger.info(f"Non-compliant classes: {self.non_compliant_classes}")
             except Exception as e:
                 logger.error(f"Error loading compliance config: {e}")
+        else:
+            logger.info(f"No config found at {self.config_file}, using defaults from config.py")
     
-    def save_config(self):
-        """Save compliance configuration to file"""
+    def save_config(self, model_name: str = None):
+        """Save compliance configuration to global config file (stable across models)"""
+        # Always save to global config file, ignore model_name parameter
         try:
             config = {
-                "compliant": list(self.compliant_classes),
-                "non_compliant": list(self.non_compliant_classes),
+                "compliant": sorted(list(self.compliant_classes)),
+                "non_compliant": sorted(list(self.non_compliant_classes)),
                 "min_confidence": self.min_confidence
             }
             with open(self.config_file, 'w') as f:
@@ -51,40 +59,40 @@ class ComplianceManager:
         except Exception as e:
             logger.error(f"Error saving compliance config: {e}")
     
-    def set_compliant_classes(self, classes: List[str]):
+    def set_compliant_classes(self, classes: List[str], model_name: str = None):
         """Set the list of compliant clothing classes"""
         self.compliant_classes = set(c.lower().strip() for c in classes)
-        self.save_config()
+        self.save_config(model_name)
         logger.info(f"Updated compliant classes: {self.compliant_classes}")
     
-    def set_non_compliant_classes(self, classes: List[str]):
+    def set_non_compliant_classes(self, classes: List[str], model_name: str = None):
         """Set the list of non-compliant clothing classes"""
         self.non_compliant_classes = set(c.lower().strip() for c in classes)
-        self.save_config()
+        self.save_config(model_name)
         logger.info(f"Updated non-compliant classes: {self.non_compliant_classes}")
     
-    def add_compliant_class(self, class_name: str):
+    def add_compliant_class(self, class_name: str, model_name: str = None):
         """Add a single class to compliant list"""
         class_name = class_name.lower().strip()
         self.compliant_classes.add(class_name)
         # Remove from non-compliant if present
         self.non_compliant_classes.discard(class_name)
-        self.save_config()
+        self.save_config(model_name)
     
-    def add_non_compliant_class(self, class_name: str):
+    def add_non_compliant_class(self, class_name: str, model_name: str = None):
         """Add a single class to non-compliant list"""
         class_name = class_name.lower().strip()
         self.non_compliant_classes.add(class_name)
         # Remove from compliant if present
         self.compliant_classes.discard(class_name)
-        self.save_config()
+        self.save_config(model_name)
     
-    def remove_class(self, class_name: str):
+    def remove_class(self, class_name: str, model_name: str = None):
         """Remove a class from both lists (make it neutral)"""
         class_name = class_name.lower().strip()
         self.compliant_classes.discard(class_name)
         self.non_compliant_classes.discard(class_name)
-        self.save_config()
+        self.save_config(model_name)
     
     def get_config(self) -> Dict:
         """Get current compliance configuration"""

@@ -73,6 +73,24 @@ LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 LOG_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 # ============================================================================
+# WhatsApp Integration (Direct - No Twilio Needed!)
+# ============================================================================
+
+# WhatsApp Web Service URL (Node.js service running locally)
+WHATSAPP_SERVICE_URL = "http://localhost:3001"  # Default local service
+
+# Recipient phone numbers (with country code, without +)
+# Example: India = 919108816244, US = 15551234567
+WHATSAPP_RECIPIENTS = [
+    "919108816244",  # Your phone number(s)
+    # "919876543210",  # Add more recipients as needed
+]
+
+# Note: Messages will be sent from YOUR WhatsApp account
+# Start service: cd whatsapp-service && node server.js
+# Then scan QR code with your phone once
+
+# ============================================================================
 # Advanced Settings (Optional)
 # ============================================================================
 

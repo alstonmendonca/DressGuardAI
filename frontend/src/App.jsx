@@ -40,6 +40,10 @@ function App() {
   
   // Notification state
   const [notification, setNotification] = useState(null);
+  
+  // Upload image logging state
+  const [canLogImage, setCanLogImage] = useState(false);
+  const [isLoggingImage, setIsLoggingImage] = useState(false);
 
   // References to DOM elements: canvas for drawing, img for size measurement
   const canvasRef = useRef(null);
@@ -209,6 +213,10 @@ const stopIPCamera = () => {
     setActiveFeed(null);
     setDetections([]);
     isDetecting.current = false;
+    setDetectionStatus(null);
+    setCanLogImage(false);
+    
+    // Don't clear imageURL here - let it persist for re-uploading
     
     console.log("Webcam stopped - activeFeed set to null");
   };
@@ -229,6 +237,11 @@ const stopIPCamera = () => {
   const handleFileChange = async (e) => {
   const file = e.target.files[0];
   if (!file) return;
+
+  // Revoke previous blob URL to free memory
+  if (imageURL) {
+    URL.revokeObjectURL(imageURL);
+  }
 
   const url = URL.createObjectURL(file);
   setDetections([]);
@@ -258,6 +271,9 @@ const stopIPCamera = () => {
           nonCompliantItems: data.non_compliant_items || []
         });
         
+        // Check if we can log this image
+        setCanLogImage(data.can_log_image || false);
+        
         // Update status based on results
         if (data.faces_detected > 0) {
           setDetectionStatus(`✓ DETECTED • ${data.faces_detected} face${data.faces_detected > 1 ? 's' : ''} identified`);
@@ -270,18 +286,81 @@ const stopIPCamera = () => {
         logComplianceResults(data, "Image");
       } else {
         setDetectionStatus('✗ Detection failed');
+        setCanLogImage(false);
       }
     } catch (err) {
       console.error("Detection error:", err);
       setDetectionStatus('✗ Detection error');
+      setCanLogImage(false);
     }
   } 
   else if (file.type.startsWith("video/")) {
     setActiveFeed('video');
     setImageURL(url);
     setDetections([]);
+    setCanLogImage(false);
   }
 };
+
+  /**
+   * Handle logging uploaded image result
+   */
+  const handleLogImageResult = async () => {
+    if (!canLogImage || isLoggingImage) return;
+    
+    setIsLoggingImage(true);
+    try {
+      const response = await fetch('/api/log-upload-image/', {
+        method: 'POST'
+      });
+      
+      if (response.ok) {
+        try {
+          const data = await response.json();
+          if (data.success) {
+            setNotification({
+              type: 'success',
+              message: `Image violation logged successfully! Check dashboard for ${data.date}`
+            });
+            setCanLogImage(false); // Hide button after successful logging
+          } else {
+            setNotification({
+              type: 'warning',
+              message: data.message || 'Failed to log image'
+            });
+          }
+        } catch (jsonErr) {
+          console.error('Error parsing success response:', jsonErr);
+          setNotification({
+            type: 'success',
+            message: 'Image logged successfully!'
+          });
+          setCanLogImage(false);
+        }
+      } else {
+        let errorMessage = 'Failed to log image';
+        try {
+          const error = await response.json();
+          errorMessage = error.detail || errorMessage;
+        } catch (jsonErr) {
+          // If JSON parsing fails, use status text
+          errorMessage = `Server error: ${response.status} ${response.statusText}`;
+        }
+        setNotification({
+          type: 'error',
+          message: errorMessage
+        });
+      }
+    } catch (err) {
+      console.error('Error logging image:', err);
+      setNotification({
+        type: 'error',
+        message: `Error logging image: ${err.message}`
+      });
+    } finally {
+      setIsLoggingImage(false);
+    }
+  };
 
   /**
    * Redraw boxes if detections or image URL changes.
@@ -542,6 +621,9 @@ const stopIPCamera = () => {
         <ActionsPanel 
           onOpenDashboard={() => setIsDashboardOpen(true)}
           onOpenReportGenerator={() => setIsReportGeneratorOpen(true)}
+          canLogImage={canLogImage}
+          isLoggingImage={isLoggingImage}
+          onLogImageResult={handleLogImageResult}
         />
 
         {/* === PANEL 7: Model Selection === */}

@@ -11,6 +11,7 @@ from utils.model_discovery import get_model_discovery
 from utils.visibility_checker import get_visibility_checker
 from utils.violation_logger import get_violation_logger
 from utils.face_recognition_insightface import detect_and_identify_faces
+from utils.whatsapp_sender import get_whatsapp_sender
 from config import (MODELS_FOLDER, WEBCAM_DETECTION_INTERVAL,
                     WEBCAM_JPEG_QUALITY, WEBCAM_FPS_LIMIT, 
                     WEBCAM_SKIP_FRAMES)
@@ -21,6 +22,8 @@ import os
 from contextlib import asynccontextmanager
 import asyncio
 import time
+import subprocess
+import sys
 
 # Setup logging with rotating file handler
 log_level = os.getenv("LOG_LEVEL", "INFO")
@@ -28,6 +31,9 @@ log_file = os.getenv("LOG_FILE", "logs/dressguard.log")
 setup_logging(log_level=log_level, log_file=log_file)
 
 logger = logging.getLogger(__name__)
+
+# Global variable to track WhatsApp service process
+whatsapp_process = None
 
 # Background task for cache cleanup
 async def cleanup_task():
@@ -40,12 +46,66 @@ async def cleanup_task():
         except Exception as e:
             logger.error(f"Cache cleanup error: {e}")
 
+def start_whatsapp_service():
+    """Start the WhatsApp Web service in the background"""
+    global whatsapp_process
+    try:
+        whatsapp_service_dir = os.path.join(os.path.dirname(__file__), "whatsapp-service")
+        
+        if not os.path.exists(whatsapp_service_dir):
+            logger.warning(f"WhatsApp service directory not found: {whatsapp_service_dir}")
+            return None
+            
+        server_js = os.path.join(whatsapp_service_dir, "server.js")
+        if not os.path.exists(server_js):
+            logger.warning(f"WhatsApp service server.js not found: {server_js}")
+            return None
+        
+        logger.info("Starting WhatsApp Web service...")
+        
+        # Start Node.js service as background process
+        if sys.platform == "win32":
+            # Windows: Start with CREATE_NEW_CONSOLE to run independently
+            whatsapp_process = subprocess.Popen(
+                ["node", "server.js"],
+                cwd=whatsapp_service_dir,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                creationflags=subprocess.CREATE_NEW_CONSOLE
+            )
+        else:
+            # Linux/Mac: Start with nohup-like behavior
+            whatsapp_process = subprocess.Popen(
+                ["node", "server.js"],
+                cwd=whatsapp_service_dir,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                start_new_session=True
+            )
+        
+        logger.info(f"WhatsApp service started with PID: {whatsapp_process.pid}")
+        logger.info("WhatsApp service will show QR code in its own console window")
+        logger.info("Scan the QR code with your phone to connect WhatsApp")
+        return whatsapp_process
+        
+    except FileNotFoundError:
+        logger.error("Node.js not found. Please install Node.js to use WhatsApp service")
+        return None
+    except Exception as e:
+        logger.error(f"Failed to start WhatsApp service: {e}")
+        return None
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifespan context manager for startup and shutdown events"""
+    global whatsapp_process
+    
     # Startup
     logger.info("Starting DressGuard API...")
     cleanup_task_handle = asyncio.create_task(cleanup_task())
+    
+    # Start WhatsApp service
+    whatsapp_process = start_whatsapp_service()
     
     yield
     
@@ -56,6 +116,20 @@ async def lifespan(app: FastAPI):
         await cleanup_task_handle
     except asyncio.CancelledError:
         pass
+    
+    # Stop WhatsApp service
+    if whatsapp_process:
+        logger.info("Stopping WhatsApp service...")
+        try:
+            whatsapp_process.terminate()
+            whatsapp_process.wait(timeout=5)
+            logger.info("WhatsApp service stopped")
+        except Exception as e:
+            logger.error(f"Error stopping WhatsApp service: {e}")
+            try:
+                whatsapp_process.kill()
+            except:
+                pass
 
 app = FastAPI(
     title="DressGuard API",
@@ -77,6 +151,15 @@ compliance_manager = ComplianceManager()
 
 # Initialize violation logger
 violation_logger = get_violation_logger()
+
+# Initialize WhatsApp sender
+whatsapp_sender = get_whatsapp_sender()
+
+# Global face detection toggle (OFF by default)
+face_detection_enabled = False
+
+# Store last uploaded image detection for manual logging
+last_upload_detection = None
 
 app.add_middleware(
     CORSMiddleware,
@@ -248,8 +331,8 @@ async def detect_dress(file: UploadFile = File(...), model: Optional[str] = None
         face_results = []
         violation_logged = False
         
-        # If non-compliant and logging is enabled, perform face detection and log violation
-        if not compliant and violation_logger.is_logging_enabled():
+        # Always perform face detection for uploads if enabled
+        if face_detection_enabled:
             try:
                 # Convert to RGB for face detection
                 image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
@@ -262,25 +345,37 @@ async def detect_dress(file: UploadFile = File(...), model: Optional[str] = None
                     # Check for multiple people
                     if len(face_results) > 1:
                         logger.warning(f"Multiple people detected in uploaded image: {detected_names}")
-                        # Still log the violation but include warning in response
-                    
-                    # Log the violation with face detection
-                    violation_logged = violation_logger.save_violation(
-                        image.copy(),
-                        detected_clothes,
-                        face_results,
-                        {
-                            'is_compliant': compliant,
-                            'non_compliant_items': non_compliant_items
-                        }
-                    )
-                    
-                    if violation_logged:
-                        logger.info(f"✓ Violation logged for uploaded image: {[f.get('name') for f in face_results]}")
                 else:
-                    logger.info("No faces detected in uploaded image - violation not logged")
+                    logger.info("No faces detected in uploaded image - marking as Unknown")
+                    # Create Unknown face entry for consistent logging
+                    face_results = [{'name': 'Unknown', 'confidence': 0, 'user_id': None}]
             except Exception as e:
-                logger.error(f"Error during face detection/logging for uploaded image: {e}", exc_info=True)
+                logger.error(f"Error during face detection for uploaded image: {e}", exc_info=True)
+                # On error, mark as Unknown
+                face_results = [{'name': 'Unknown', 'confidence': 0, 'user_id': None}]
+        else:
+            # Face detection disabled - mark as Unknown
+            logger.info("Face detection disabled - marking as Unknown if logged")
+            face_results = [{'name': 'Unknown', 'confidence': 0, 'user_id': None}]
+        
+        # Store upload detection for manual logging (if non-compliant)
+        global last_upload_detection
+        if not compliant:
+            last_upload_detection = {
+                'image': image.copy(),
+                'detected_clothes': detected_clothes,
+                'face_results': face_results,
+                'compliance_info': {
+                    'is_compliant': compliant,
+                    'non_compliant_items': non_compliant_items
+                },
+                'model': detector.current_model,
+                'timestamp': time.time()
+            }
+            logger.info("Stored upload detection for manual logging via 'Log Image Result' button")
+        else:
+            logger.info("✓ Upload is compliant - no violation to log")
+            last_upload_detection = None
 
         return {
             "clothes_detected": detected_clothes,
@@ -292,7 +387,8 @@ async def detect_dress(file: UploadFile = File(...), model: Optional[str] = None
             "model_used": detector.current_model,
             "total_detections": len(detected_clothes),
             "faces_detected": len(face_results),
-            "violation_logged": violation_logged
+            "violation_logged": violation_logged,
+            "can_log_image": not compliant  # Show Log Image Result button if non-compliant
         }
         
     except HTTPException:
@@ -300,6 +396,109 @@ async def detect_dress(file: UploadFile = File(...), model: Optional[str] = None
     except Exception as e:
         logger.error(f"Detection error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Detection failed: {str(e)}")
+
+@app.post("/log-upload-image/")
+async def log_upload_image():
+    """
+    Manually log the last uploaded non-compliant image.
+    This is separate from video stream logging.
+    """
+    global last_upload_detection
+    
+    if last_upload_detection is None:
+        raise HTTPException(
+            status_code=404,
+            detail="No upload available to log. Please upload a non-compliant image first."
+        )
+    
+    try:
+        # Check if upload is still recent (within 10 minutes)
+        if time.time() - last_upload_detection['timestamp'] > 600:
+            last_upload_detection = None
+            raise HTTPException(
+                status_code=410,
+                detail="Upload expired (10 min timeout). Please re-upload the image."
+            )
+        
+        logger.info("=== MANUAL IMAGE LOGGING START ===")
+        logger.info(f"Logging enabled: {violation_logger.is_logging_enabled()}")
+        logger.info(f"Non-compliant items: {last_upload_detection['compliance_info']['non_compliant_items']}")
+        logger.info(f"Face results: {[(f['name'], f.get('confidence', 0)) for f in last_upload_detection['face_results']]}")
+        logger.info(f"Model: {last_upload_detection['model']}")
+        logger.info("Calling save_violation with skip_cooldown=True (bypasses logging enabled check)")
+        
+        # Log the violation with all data (including license plates for Vehicle Helmet model)
+        # Skip cooldown for manual image uploads (bypasses both cooldown AND logging_enabled check)
+        violation_logged = violation_logger.save_violation(
+            last_upload_detection['image'].copy(),
+            last_upload_detection['detected_clothes'],
+            last_upload_detection['face_results'],
+            last_upload_detection['compliance_info'],
+            current_model=last_upload_detection['model'],
+            skip_cooldown=True
+        )
+        
+        if violation_logged:
+            face_names = [f.get('name') for f in last_upload_detection['face_results']]
+            logger.info(f"✓ Image violation SUCCESSFULLY logged: {face_names}")
+            logger.info(f"✓ Check dashboard for today's date: {datetime.now().strftime('%Y-%m-%d')}")
+            logger.info("=== MANUAL IMAGE LOGGING SUCCESS ===")
+            
+            # Clear stored detection after successful logging
+            last_upload_detection = None
+            
+            return {
+                "success": True,
+                "message": "Image violation logged successfully",
+                "faces": face_names,
+                "date": datetime.now().strftime('%Y-%m-%d')
+            }
+        else:
+            logger.error("✗ Image violation NOT logged - save_violation returned False")
+            logger.error("This should NOT happen with skip_cooldown=True!")
+            logger.error(f"Logging enabled: {violation_logger.is_logging_enabled()}")
+            logger.error(f"Pending tasks: {violation_logger.pending_tasks}/{violation_logger.max_pending_tasks}")
+            logger.error("=== MANUAL IMAGE LOGGING FAILED ===")
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to log image. Check server logs for details."
+            )
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error during manual image logging: {e}", exc_info=True)
+        logger.error("=== MANUAL IMAGE LOGGING ERROR ===")
+        raise HTTPException(status_code=500, detail=f"Image logging failed: {str(e)}")
+
+@app.get("/log-upload-image/status/")
+async def get_upload_log_status():
+    """Check if there's an upload available to log"""
+    global last_upload_detection
+    
+    if last_upload_detection is None:
+        return {
+            "available": False,
+            "message": "No upload available"
+        }
+    
+    # Check if expired
+    age = time.time() - last_upload_detection['timestamp']
+    if age > 600:
+        last_upload_detection = None
+        return {
+            "available": False,
+            "message": "Upload expired"
+        }
+    
+    return {
+        "available": True,
+        "message": "Upload ready to log",
+        "age_seconds": int(age),
+        "expires_in_seconds": int(600 - age),
+        "non_compliant_items": last_upload_detection['compliance_info']['non_compliant_items'],
+        "faces": [f.get('name') for f in last_upload_detection['face_results']]
+    }
 
 @app.post("/switch-model/")
 async def switch_model(model_name: str = Body(..., embed=True)):
@@ -332,7 +531,10 @@ async def switch_model(model_name: str = Body(..., embed=True)):
         success = detector.switch_model(matched_model_id)
         
         if success:
+            # Keep the same compliance configuration (don't reload model-specific config)
+            # This ensures compliance settings remain stable across model switches
             logger.info(f"Successfully switched to model: {matched_model_id}")
+            logger.info(f"Using current compliance config (stable across models)")
             return {
                 "success": True,
                 "current_model": detector.current_model,
@@ -407,14 +609,17 @@ async def clear_cache():
 
 @app.get("/compliance/config/")
 async def get_compliance_config():
-    """Get current compliance configuration filtered by current model's classes"""
+    """Get current compliance configuration for the active model"""
     config = compliance_manager.get_config()
+    
+    # Add current model information
+    config["current_model"] = detector.current_model if detector else None
     
     # Filter to only include classes from the current model
     if detector and hasattr(detector.model, 'names'):
         current_model_classes = set(c.lower() for c in detector.model.names.values())
         
-        # Filter compliant and non-compliant classes
+        # Filter compliant and non-compliant classes to show only those available in current model
         config["compliant_classes"] = [
             c for c in config["compliant_classes"] 
             if c in current_model_classes
@@ -423,6 +628,15 @@ async def get_compliance_config():
             c for c in config["non_compliant_classes"] 
             if c in current_model_classes
         ]
+        
+        # Add info about filtered classes (classes in config but not in current model)
+        all_compliant = set(compliance_manager.compliant_classes)
+        all_non_compliant = set(compliance_manager.non_compliant_classes)
+        
+        config["filtered_out"] = {
+            "compliant": sorted(list(all_compliant - current_model_classes)),
+            "non_compliant": sorted(list(all_non_compliant - current_model_classes))
+        }
     
     return config
 
@@ -456,7 +670,10 @@ async def update_compliance_config(
         compliance_manager.compliant_classes = compliant_set
         compliance_manager.non_compliant_classes = non_compliant_set
         compliance_manager.min_confidence = min_confidence
-        compliance_manager.save_config()
+        
+        # Save with current model name for model-specific config
+        model_name = detector.current_model if detector else None
+        compliance_manager.save_config(model_name)
         
         logger.info(f"Compliance config updated: {len(compliant_set)} compliant, "
                    f"{len(non_compliant_set)} non-compliant, "
@@ -476,7 +693,8 @@ async def update_compliance_config(
 async def add_compliant_class(class_name: str = Body(..., embed=True)):
     """Add a class to the compliant list"""
     try:
-        compliance_manager.add_compliant_class(class_name)
+        model_name = detector.current_model if detector else None
+        compliance_manager.add_compliant_class(class_name, model_name)
         return {
             "success": True,
             "message": f"Added '{class_name}' to compliant classes",
@@ -490,7 +708,8 @@ async def add_compliant_class(class_name: str = Body(..., embed=True)):
 async def add_non_compliant_class(class_name: str = Body(..., embed=True)):
     """Add a class to the non-compliant list"""
     try:
-        compliance_manager.add_non_compliant_class(class_name)
+        model_name = detector.current_model if detector else None
+        compliance_manager.add_non_compliant_class(class_name, model_name)
         return {
             "success": True,
             "message": f"Added '{class_name}' to non-compliant classes",
@@ -504,7 +723,8 @@ async def add_non_compliant_class(class_name: str = Body(..., embed=True)):
 async def remove_class(class_name: str = Body(..., embed=True)):
     """Remove a class from both compliant and non-compliant lists"""
     try:
-        compliance_manager.remove_class(class_name)
+        model_name = detector.current_model if detector else None
+        compliance_manager.remove_class(class_name, model_name)
         return {
             "success": True,
             "message": f"Removed '{class_name}' from compliance lists",
@@ -596,6 +816,33 @@ async def set_logging_cooldown(cooldown_seconds: int = Body(..., embed=True)):
     except Exception as e:
         logger.error(f"Error setting cooldown: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+# ============================================================================
+# Face Detection Toggle Endpoints
+# ============================================================================
+
+@app.post("/face-detection/toggle/")
+async def toggle_face_detection():
+    """Toggle face detection on/off"""
+    global face_detection_enabled
+    try:
+        face_detection_enabled = not face_detection_enabled
+        logger.info(f"Face detection {'enabled' if face_detection_enabled else 'disabled'}")
+        return {
+            "success": True,
+            "face_detection_enabled": face_detection_enabled,
+            "message": f"Face detection {'enabled' if face_detection_enabled else 'disabled'}"
+        }
+    except Exception as e:
+        logger.error(f"Error toggling face detection: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/face-detection/status/")
+async def get_face_detection_status():
+    """Get current face detection status"""
+    return {
+        "face_detection_enabled": face_detection_enabled
+    }
 
 @app.post("/logging/enable/")
 async def enable_logging():
@@ -718,13 +965,24 @@ async def get_system_status():
 # Dashboard Endpoints - Get Logs, Filter, Delete
 # ============================================================================
 
+@app.get("/dashboard/debug/logged-today/")
+async def debug_logged_today():
+    """Debug endpoint to see logged_today state"""
+    return {
+        "logged_today": violation_logger.logged_today,
+        "current_date": datetime.now().strftime("%Y-%m-%d"),
+        "log_folder": violation_logger.log_folder,
+        "logging_enabled": violation_logger.is_logging_enabled()
+    }
+
 @app.get("/dashboard/logs/")
-async def get_logs(date: Optional[str] = None, page: int = 1, per_page: int = 10):
+async def get_logs(date: Optional[str] = None, model: Optional[str] = None, page: int = 1, per_page: int = 10):
     """
-    Get violation logs with pagination and optional date filtering.
+    Get violation logs with pagination and optional date/model filtering.
     
     Args:
         date: Optional date filter in YYYY-MM-DD format. If None, shows today's logs.
+        model: Optional model filter. If None or 'all', shows all models.
         page: Page number (1-indexed)
         per_page: Number of items per page
     
@@ -735,7 +993,8 @@ async def get_logs(date: Optional[str] = None, page: int = 1, per_page: int = 10
             "page": int,
             "per_page": int,
             "total_pages": int,
-            "date": str
+            "date": str,
+            "model": str
         }
     """
     try:
@@ -757,10 +1016,12 @@ async def get_logs(date: Optional[str] = None, page: int = 1, per_page: int = 10
         
         # Get all image files
         all_files = [f for f in os.listdir(log_folder) if f.endswith('.jpg')]
+        logger.info(f"Dashboard: Found {len(all_files)} total image files in {log_folder}")
         
         # Filter by date
         filtered_files = []
         target_date_prefix = date.replace("-", "")  # Convert 2025-10-28 to 20251028
+        logger.info(f"Dashboard: Filtering for date {date} (prefix: {target_date_prefix})")
         
         for filename in all_files:
             # Extract date from filename (format: violation_YYYYMMDD_HHMMSS_mmm.jpg)
@@ -769,28 +1030,26 @@ async def get_logs(date: Optional[str] = None, page: int = 1, per_page: int = 10
                     file_date = filename.split("_")[1]  # Get YYYYMMDD part
                     if file_date == target_date_prefix:
                         filtered_files.append(filename)
-                except:
+                        logger.debug(f"Dashboard: Matched file {filename}")
+                except Exception as e:
+                    logger.debug(f"Dashboard: Failed to parse filename {filename}: {e}")
                     continue
+        
+        logger.info(f"Dashboard: {len(filtered_files)} files matched date {date}")
         
         # Sort by timestamp (newest first)
         filtered_files.sort(reverse=True)
         
-        # Calculate pagination
-        total = len(filtered_files)
-        total_pages = (total + per_page - 1) // per_page if total > 0 else 0
-        start_idx = (page - 1) * per_page
-        end_idx = start_idx + per_page
-        
-        # Get page of files
-        page_files = filtered_files[start_idx:end_idx]
-        
         # Load daily logs to get person names and violations
         daily_logs = violation_logger.logged_today
+        logger.info(f"Dashboard: logged_today has {len(daily_logs)} entries")
         
-        # Build response with metadata
-        logs = []
-        for filename in page_files:
+        # Build metadata for all files and apply model filter BEFORE pagination
+        all_logs_metadata = []
+        for filename in filtered_files:
             filepath = os.path.join(log_folder, filename)
+            # Normalize path for comparison (handle mixed separators)
+            filepath_normalized = os.path.normpath(filepath)
             
             # Extract timestamp from filename
             try:
@@ -802,27 +1061,66 @@ async def get_logs(date: Optional[str] = None, page: int = 1, per_page: int = 10
                 # Format timestamp
                 timestamp_str = f"{date_part[:4]}-{date_part[4:6]}-{date_part[6:8]} {time_part[:2]}:{time_part[2:4]}:{time_part[4:6]}.{ms_part}"
                 
-                # Find matching person in daily logs
+                # Find matching file in daily logs (new structure uses filepath as key)
                 person_name = "Unknown"
                 violations = []
+                license_plates = []
+                model_name = "Unknown"
+                matched = False
                 
-                for person, log_info in daily_logs.items():
-                    if log_info.get("filepath") == filepath:
-                        person_name = person
-                        violations = log_info.get("items", [])
-                        break
+                # Try direct lookup first (new structure)
+                if filepath_normalized in daily_logs:
+                    log_info = daily_logs[filepath_normalized]
+                    person_name = log_info.get("person", "Unknown")
+                    violations = log_info.get("items", [])
+                    license_plates = log_info.get("license_plates", [])
+                    model_name = log_info.get("model", "Unknown")
+                    matched = True
+                    logger.debug(f"Dashboard: Matched {filename} to person {person_name}, model {model_name}, plates: {license_plates}")
+                else:
+                    # Fallback: search through all entries (legacy format compatibility)
+                    for key, log_info in daily_logs.items():
+                        logged_filepath = os.path.normpath(log_info.get("filepath", ""))
+                        if logged_filepath == filepath_normalized:
+                            person_name = log_info.get("person", key)  # key might be person name in old format
+                            violations = log_info.get("items", [])
+                            license_plates = log_info.get("license_plates", [])
+                            model_name = log_info.get("model", "Unknown")
+                            matched = True
+                            logger.debug(f"Dashboard: Matched {filename} (legacy) to person {person_name}, model {model_name}")
+                            break
                 
-                logs.append({
+                if not matched:
+                    logger.warning(f"Dashboard: No match in logged_today for {filename} (filepath: {filepath_normalized})")
+                    logger.info(f"Dashboard: Including {filename} anyway with basic info")
+                
+                # Apply model filter if specified
+                if model and model.lower() != 'all' and model_name.lower() != model.lower():
+                    logger.debug(f"Dashboard: Skipping {filename} - model '{model_name}' doesn't match filter '{model}'")
+                    continue
+                
+                all_logs_metadata.append({
                     "id": filename,
                     "filename": filename,
                     "timestamp": timestamp_str,
                     "person": person_name,
-                    "violations": violations,
+                    "violations": violations if violations else ["Violation (details unavailable)"],
+                    "license_plates": license_plates,
+                    "model": model_name,
                     "image_url": f"/api/dashboard/image/{filename}"
                 })
             except Exception as e:
-                logger.error(f"Error processing file {filename}: {e}")
+                logger.error(f"Dashboard: Error processing file {filename}: {e}", exc_info=True)
                 continue
+        
+        # Apply pagination AFTER filtering
+        total = len(all_logs_metadata)
+        total_pages = (total + per_page - 1) // per_page if total > 0 else 0
+        start_idx = (page - 1) * per_page
+        end_idx = start_idx + per_page
+        logs = all_logs_metadata[start_idx:end_idx]
+        
+        logger.info(f"Dashboard: Returning {len(logs)} of {total} total logs for date {date}, model filter: {model or 'all'}")
         
         return {
             "logs": logs,
@@ -830,7 +1128,8 @@ async def get_logs(date: Optional[str] = None, page: int = 1, per_page: int = 10
             "page": page,
             "per_page": per_page,
             "total_pages": total_pages,
-            "date": date
+            "date": date,
+            "model": model or "all"
         }
         
     except Exception as e:
@@ -1002,13 +1301,42 @@ async def get_available_dates():
         logger.error(f"Error getting available dates: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/dashboard/report/{date}")
-async def generate_report(date: str):
+@app.get("/dashboard/models/")
+async def get_available_models():
     """
-    Generate Excel report for a specific date with student details.
+    Get list of all available detection models in the system.
+    
+    Returns:
+        List of model names available for filtering
+    """
+    try:
+        # Get all available models from the model discovery system
+        models_set = set()
+        
+        if detector and hasattr(detector, 'model_discovery'):
+            available_models = detector.model_discovery.get_all_models()
+            for model_name in available_models.keys():
+                models_set.add(model_name)
+        
+        # Sort models alphabetically
+        models = sorted(list(models_set))
+        
+        logger.info(f"Available models for filtering: {models}")
+        
+        return {"models": models}
+        
+    except Exception as e:
+        logger.error(f"Error getting available models: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/dashboard/report/{date}")
+async def generate_report(date: str, model: Optional[str] = None):
+    """
+    Generate Excel report for a specific date and optionally filtered by model.
     
     Args:
         date: Date in YYYY-MM-DD format
+        model: Optional model name to filter by (e.g., 'Vehicle Helmet', 'Student Uniform')
     
     Returns:
         Excel file download with violation details
@@ -1057,14 +1385,24 @@ async def generate_report(date: str):
                         
                         # Find person and violations from daily logs
                         filepath = os.path.join(log_folder, filename)
+                        filepath_normalized = os.path.normpath(filepath)
                         person_name = "Unknown"
                         items = []
+                        license_plates = []
+                        model_name = "Unknown"
                         
                         for person, log_info in violation_logger.logged_today.items():
-                            if log_info.get("filepath") == filepath:
+                            logged_filepath = os.path.normpath(log_info.get("filepath", ""))
+                            if logged_filepath == filepath_normalized:
                                 person_name = person
                                 items = log_info.get("items", [])
+                                license_plates = log_info.get("license_plates", [])
+                                model_name = log_info.get("model", "Unknown")
                                 break
+                        
+                        # Apply model filter if specified
+                        if model and model.lower() != 'all' and model_name.lower() != model.lower():
+                            continue
                         
                         # Get student details
                         student_info = students_db.get(person_name, {})
@@ -1078,6 +1416,7 @@ async def generate_report(date: str):
                             'email': student_info.get('email', 'N/A'),
                             'timestamp': timestamp,
                             'violations': ', '.join(items) if items else 'N/A',
+                            'license_plates': ', '.join(license_plates) if license_plates else 'N/A',
                             'image': filename
                         })
                 except Exception as e:
@@ -1109,16 +1448,17 @@ async def generate_report(date: str):
         )
         
         # Add title
-        ws.merge_cells('A1:I1')
+        ws.merge_cells('A1:K1')
         title_cell = ws['A1']
-        title_cell.value = f"DressGuard Non-Compliance Report - {date}"
+        model_suffix = f" - {model}" if model and model.lower() != 'all' else " - All Models"
+        title_cell.value = f"DressGuard Non-Compliance Report - {date}{model_suffix}"
         title_cell.font = Font(bold=True, size=16)
         title_cell.alignment = Alignment(horizontal="center", vertical="center")
         title_cell.fill = PatternFill(start_color="D9E1F2", end_color="D9E1F2", fill_type="solid")
         ws.row_dimensions[1].height = 30
         
         # Add headers
-        headers = ['#', 'Full Name', 'USN', 'Department', 'Branch', 'Email', 'Timestamp', 'Violations', 'Image File']
+        headers = ['#', 'Full Name', 'USN', 'Department', 'Branch', 'Email', 'Timestamp', 'Violations', 'License Plates', 'Model', 'Image File']
         for col_num, header in enumerate(headers, 1):
             cell = ws.cell(row=2, column=col_num)
             cell.value = header
@@ -1138,7 +1478,8 @@ async def generate_report(date: str):
         ws.column_dimensions['F'].width = 30
         ws.column_dimensions['G'].width = 20
         ws.column_dimensions['H'].width = 30
-        ws.column_dimensions['I'].width = 30
+        ws.column_dimensions['I'].width = 20
+        ws.column_dimensions['J'].width = 30
         
         # Add data rows
         for idx, violation in enumerate(violations, 1):
@@ -1152,6 +1493,8 @@ async def generate_report(date: str):
                 violation['email'],
                 violation['timestamp'],
                 violation['violations'],
+                violation['license_plates'],
+                violation['model'],
                 violation['image']
             ]
             
@@ -1192,6 +1535,256 @@ async def generate_report(date: str):
         raise
     except Exception as e:
         logger.error(f"Error generating report for {date}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/dashboard/whatsapp/status/")
+async def get_whatsapp_status():
+    """Check if WhatsApp integration is enabled and configured"""
+    try:
+        import config
+        return {
+            "enabled": whatsapp_sender.is_enabled(),
+            "configured": bool(getattr(config, 'TWILIO_ACCOUNT_SID', None) and 
+                             getattr(config, 'TWILIO_AUTH_TOKEN', None)),
+            "recipients": getattr(config, 'WHATSAPP_RECIPIENTS', [])
+        }
+    except Exception as e:
+        logger.error(f"Error checking WhatsApp status: {e}")
+        return {
+            "enabled": False,
+            "configured": False,
+            "error": str(e)
+        }
+
+@app.post("/dashboard/send-whatsapp/")
+async def send_report_to_whatsapp(date: str = Body(...), 
+                                   model: Optional[str] = Body(None),
+                                   recipients: Optional[List[str]] = Body(None)):
+    """
+    Generate Excel report and send via WhatsApp with file attachment
+    
+    Args:
+        date: Report date in YYYY-MM-DD format
+        model: Optional model name to filter by
+        recipients: Optional list of recipient phone numbers (uses config default if not provided)
+    \n    Returns:
+        Status of WhatsApp message sending
+    """
+    try:
+        import config
+        import json
+        from io import BytesIO
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+        
+        # Check if WhatsApp is enabled
+        if not whatsapp_sender.is_enabled():
+            raise HTTPException(
+                status_code=503, 
+                detail="WhatsApp Web service not ready. Please start: cd whatsapp-service && node server.js"
+            )
+        
+        # Get recipients from config if not provided
+        if not recipients:
+            recipients = getattr(config, 'WHATSAPP_RECIPIENTS', [])
+        
+        if not recipients:
+            raise HTTPException(
+                status_code=400,
+                detail="No recipients specified. Add phone numbers to WHATSAPP_RECIPIENTS in config.py"
+            )
+        
+        logger.info(f"Generating report for {date}...")
+        
+        # === STEP 1: Generate Excel Report (using existing logic) ===
+        
+        # Load student database
+        students_file = "students.json"
+        students_db = {}
+        if os.path.exists(students_file):
+            try:
+                with open(students_file, 'r') as f:
+                    students_db = json.load(f)
+            except Exception as e:
+                logger.error(f"Error loading students.json: {e}")
+        
+        # Get logs for this date
+        log_folder = violation_logger.log_folder
+        if not os.path.exists(log_folder):
+            raise HTTPException(status_code=404, detail="No logs found")
+        
+        # Filter files by date
+        target_date_prefix = date.replace("-", "")
+        violations = []
+        
+        for filename in os.listdir(log_folder):
+            if filename.startswith("violation_") and filename.endswith('.jpg'):
+                try:
+                    file_date = filename.split("_")[1]
+                    if file_date == target_date_prefix:
+                        time_part = filename.split("_")[2]
+                        timestamp = f"{file_date[:4]}-{file_date[4:6]}-{file_date[6:8]} {time_part[:2]}:{time_part[2:4]}:{time_part[4:6]}"
+                        
+                        filepath = os.path.join(log_folder, filename)
+                        filepath_normalized = os.path.normpath(filepath)
+                        person_name = "Unknown"
+                        items = []
+                        license_plates = []
+                        model_name = "Unknown"
+                        
+                        for person, log_info in violation_logger.logged_today.items():
+                            logged_filepath = os.path.normpath(log_info.get("filepath", ""))
+                            if logged_filepath == filepath_normalized:
+                                person_name = person
+                                items = log_info.get("items", [])
+                                license_plates = log_info.get("license_plates", [])
+                                model_name = log_info.get("model", "Unknown")
+                                break
+                        
+                        # Apply model filter if specified
+                        if model and model.lower() != 'all' and model_name.lower() != model.lower():
+                            continue
+                        
+                        student_info = students_db.get(person_name, {})
+                        
+                        violations.append({
+                            'person': person_name,
+                            'full_name': student_info.get('full_name', person_name),
+                            'usn': student_info.get('usn', 'N/A'),
+                            'department': student_info.get('department', 'N/A'),
+                            'branch': student_info.get('branch', 'N/A'),
+                            'email': student_info.get('email', 'N/A'),
+                            'timestamp': timestamp,
+                            'violations': ', '.join(items) if items else 'N/A',
+                            'license_plates': ', '.join(license_plates) if license_plates else 'N/A',
+                            'model': model_name,
+                            'image': filename
+                        })
+                except Exception as e:
+                    logger.error(f"Error processing file {filename}: {e}")
+                    continue
+        
+        model_filter_msg = f" for model '{model}'" if model and model.lower() != 'all' else ""
+        if not violations:
+            raise HTTPException(status_code=404, detail=f"No violations found for {date}{model_filter_msg}")
+        
+        violations.sort(key=lambda x: x['timestamp'])
+        
+        # Create Excel workbook
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Non-Compliance Report"
+        
+        # Styles
+        header_font = Font(bold=True, color="FFFFFF", size=12)
+        header_fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
+        header_alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        cell_alignment = Alignment(horizontal="left", vertical="top", wrap_text=True)
+        border = Border(
+            left=Side(style='thin'), right=Side(style='thin'),
+            top=Side(style='thin'), bottom=Side(style='thin')
+        )
+        
+        # Title
+        ws.merge_cells('A1:K1')
+        title_cell = ws['A1']
+        model_suffix = f" - {model}" if model and model.lower() != 'all' else " - All Models"
+        title_cell.value = f"DressGuard Non-Compliance Report - {date}{model_suffix}"
+        title_cell.font = Font(bold=True, size=16)
+        title_cell.alignment = Alignment(horizontal="center", vertical="center")
+        title_cell.fill = PatternFill(start_color="D9E1F2", end_color="D9E1F2", fill_type="solid")
+        ws.row_dimensions[1].height = 30
+        
+        # Headers
+        headers = ['#', 'Full Name', 'USN', 'Department', 'Branch', 'Email', 'Timestamp', 'Violations', 'License Plates', 'Model', 'Image File']
+        for col_num, header in enumerate(headers, 1):
+            cell = ws.cell(row=2, column=col_num)
+            cell.value = header
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = header_alignment
+            cell.border = border
+        
+        ws.row_dimensions[2].height = 25
+        ws.column_dimensions['A'].width = 5
+        ws.column_dimensions['B'].width = 25
+        ws.column_dimensions['C'].width = 15
+        ws.column_dimensions['D'].width = 15
+        ws.column_dimensions['E'].width = 10
+        ws.column_dimensions['F'].width = 30
+        ws.column_dimensions['G'].width = 20
+        ws.column_dimensions['H'].width = 30
+        ws.column_dimensions['I'].width = 20
+        ws.column_dimensions['J'].width = 20
+        ws.column_dimensions['K'].width = 30
+        
+        # Data rows
+        for idx, violation in enumerate(violations, 1):
+            row_num = idx + 2
+            row_data = [
+                idx, violation['full_name'], violation['usn'], violation['department'],
+                violation['branch'], violation['email'], violation['timestamp'],
+                violation['violations'], violation['license_plates'], violation['model'], violation['image']
+            ]
+            for col_num, value in enumerate(row_data, 1):
+                cell = ws.cell(row=row_num, column=col_num)
+                cell.value = value
+                cell.alignment = cell_alignment
+                cell.border = border
+            ws.row_dimensions[row_num].height = 20
+        
+        # Summary
+        summary_row = len(violations) + 4
+        ws.merge_cells(f'A{summary_row}:C{summary_row}')
+        summary_cell = ws[f'A{summary_row}']
+        summary_cell.value = f"Total Violations: {len(violations)}"
+        summary_cell.font = Font(bold=True, size=12)
+        summary_cell.fill = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
+        
+        # Save to file
+        report_filename = f"DressGuard_Report_{date.replace('-', '')}.xlsx"
+        report_path = os.path.join("non_compliance_logs", report_filename)
+        
+        # Ensure directory exists
+        os.makedirs("non_compliance_logs", exist_ok=True)
+        
+        wb.save(report_path)
+        logger.info(f"Report generated: {report_path}")
+        
+        # === STEP 2: Send via WhatsApp with attachment ===
+        
+        results = []
+        for recipient in recipients:
+            result = whatsapp_sender.send_report_with_file(
+                to_number=recipient,
+                date=date,
+                total_violations=len(violations),
+                report_path=report_path
+            )
+            results.append({
+                "recipient": recipient,
+                "success": result.get('success', False),
+                "message_sid": result.get('message_sid'),
+                "error": result.get('error')
+            })
+        
+        success_count = sum(1 for r in results if r['success'])
+        
+        return {
+            "success": success_count > 0,
+            "date": date,
+            "violation_count": len(violations),
+            "total_recipients": len(recipients),
+            "successful_sends": success_count,
+            "report_generated": True,
+            "report_path": report_path,
+            "results": results
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error sending WhatsApp report for {date}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # ============================================================================
@@ -1351,39 +1944,51 @@ def generate_webcam_frames():
                 results = detector.detect(frame, confidence_threshold=0.6)
                 is_compliant, non_compliant_items, compliance_details = compliance_manager.check_compliance(results)
                 
-                # Simple face detection every 5 seconds
+                # If non-compliant and logging is enabled, process violation logging
                 if not is_compliant and violation_logger.is_logging_enabled():
-                    # Run face detection every 5 seconds
+                    # Run face detection/logging every 5 seconds
                     if current_time - last_face_detection_time >= face_detection_interval:
-                        current_status = "SCANNING FACE..."
                         last_face_detection_time = current_time
+                        face_results = []
                         
-                        # Convert frame to RGB for face detection
-                        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                        face_results = detect_and_identify_faces(frame_rgb)
-                        
-                        # Handle face detection
-                        if len(face_results) > 0:
-                            # Debug: Log what faces were detected
-                            detected_names = [f"{face.get('name')} ({face.get('confidence', 0):.1f}%)" for face in face_results]
-                            logger.info(f"Face detection results: {detected_names}")
+                        # If face detection is enabled, perform face recognition
+                        if face_detection_enabled:
+                            current_status = "SCANNING FACE..."
+                            # Convert frame to RGB for face detection
+                            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                            face_results = detect_and_identify_faces(frame_rgb)
                             
-                            # Check if multiple people detected in frame
-                            if len(face_results) > 1:
-                                global multiple_people_warning_active, multiple_people_warning_timestamp
-                                logger.warning(f"Multiple people detected in frame: {detected_names}")
-                                current_status = "⚠️ MULTIPLE PEOPLE DETECTED - Only one person should be in frame"
-                                multiple_people_warning_time = current_time
-                                # Set global warning flag for frontend notification
-                                multiple_people_warning_active = True
-                                multiple_people_warning_timestamp = current_time
-                                # Don't process or log anything when multiple people detected
-                            else:
-                                # Only one person detected - proceed with logging
-                                known_faces = [face for face in face_results if face.get('name') != 'Unknown']
-                                
-                                # Process first known face only (one person at a time)
-                                if known_faces:
+                            # If no faces detected, mark as Unknown
+                            if not face_results:
+                                logger.info("No faces detected in video frame - marking as Unknown")
+                                face_results = [{'name': 'Unknown', 'confidence': 0, 'user_id': None}]
+                        else:
+                            # Face detection disabled - mark as Unknown for logging
+                            current_status = "LOGGING VIOLATION..."
+                            logger.info("Face detection disabled - marking as Unknown for logging")
+                            face_results = [{'name': 'Unknown', 'confidence': 0, 'user_id': None}]
+                        
+                        # Handle logging based on face detection results
+                        # Debug: Log what faces were detected
+                        detected_names = [f"{face.get('name')} ({face.get('confidence', 0):.1f}%)" for face in face_results]
+                        logger.info(f"Face detection results: {detected_names}")
+                        
+                        # Check if multiple people detected in frame (only when face detection enabled)
+                        if face_detection_enabled and len(face_results) > 1:
+                            global multiple_people_warning_active, multiple_people_warning_timestamp
+                            logger.warning(f"Multiple people detected in frame: {detected_names}")
+                            current_status = "⚠️ MULTIPLE PEOPLE DETECTED - Only one person should be in frame"
+                            multiple_people_warning_time = current_time
+                            # Set global warning flag for frontend notification
+                            multiple_people_warning_active = True
+                            multiple_people_warning_timestamp = current_time
+                            # Don't process or log anything when multiple people detected
+                        else:
+                            # Single person or face detection disabled - proceed with logging
+                            known_faces = [face for face in face_results if face.get('name') != 'Unknown']
+                            
+                            # Process first known face only (one person at a time)
+                            if known_faces:
                                     face_info = known_faces[0]
                                     name = face_info.get('name')
                                     confidence = face_info.get('confidence', 0)
@@ -1440,7 +2045,8 @@ def generate_webcam_frames():
                                             {
                                                 'is_compliant': is_compliant,
                                                 'non_compliant_items': non_compliant_items
-                                            }
+                                            },
+                                            current_model=detector.current_model
                                         )
                                         
                                         if save_result:
@@ -1451,33 +2057,37 @@ def generate_webcam_frames():
                                         else:
                                             logger.warning(f"✗ Violation NOT logged for {name} - save_violation returned False")
                                             current_status = f"Failed to log: {name}"
-                                else:
-                                    # Only unknown faces detected - always log (don't replace, could be different people)
-                                    if 'Unknown' not in logged_persons:
-                                        current_status = "LOGGING: Unknown..."
-                                        logger.info("Unknown person detected - logging violation")
-                                        violation_logger.save_violation(
-                                            frame.copy(),
-                                            results,
-                                            face_results,
-                                            {
-                                                'is_compliant': is_compliant,
-                                                'non_compliant_items': non_compliant_items
-                                            }
-                                        )
+                            else:
+                                # Only unknown faces or face detection disabled - log as Unknown
+                                if 'Unknown' not in logged_persons:
+                                    current_status = "LOGGING: Unknown..."
+                                    logger.info("Unknown person detected - logging violation")
+                                    violation_logged = violation_logger.save_violation(
+                                        frame.copy(),
+                                        results,
+                                        face_results,  # Contains Unknown face entry
+                                        {
+                                            'is_compliant': is_compliant,
+                                            'non_compliant_items': non_compliant_items
+                                        },
+                                        current_model=detector.current_model
+                                    )
+                                    if violation_logged:
                                         logged_persons.add('Unknown')
                                         last_logged_time['Unknown'] = current_time
                                         current_status = "✓ LOGGED: Unknown"
+                                        logger.info("✓ Violation logged for Unknown")
                                     else:
-                                        # Already logged Unknown in this session
-                                        time_since_logged = current_time - last_logged_time.get('Unknown', current_time)
-                                        time_until_reset = session_reset_timeout - time_since_logged
-                                        if time_until_reset > 0:
-                                            current_status = f"Unknown - Logged (resets in {int(time_until_reset)}s)"
-                                        else:
-                                            current_status = "Unknown - Already logged"
-                        else:
-                            current_status = "No face detected"
+                                        current_status = "Failed to log Unknown"
+                                        logger.warning("Failed to log violation for Unknown")
+                                else:
+                                    # Already logged Unknown in this session
+                                    time_since_logged = current_time - last_logged_time.get('Unknown', current_time)
+                                    time_until_reset = session_reset_timeout - time_since_logged
+                                    if time_until_reset > 0:
+                                        current_status = f"Unknown - Logged (resets in {int(time_until_reset)}s)"
+                                    else:
+                                        current_status = "Unknown - Already logged"
                     else:
                         # Waiting for next scan
                         time_until_next = face_detection_interval - (current_time - last_face_detection_time)

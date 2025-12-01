@@ -8,6 +8,8 @@ export default function Dashboard({ isOpen, onClose }) {
     const [totalPages, setTotalPages] = useState(0);
     const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
     const [availableDates, setAvailableDates] = useState([]);
+    const [availableModels, setAvailableModels] = useState([]);
+    const [selectedModel, setSelectedModel] = useState('all');
     const [total, setTotal] = useState(0);
     const perPage = 10;
 
@@ -16,13 +18,15 @@ export default function Dashboard({ isOpen, onClose }) {
         if (isOpen) {
             fetchLogs();
             fetchAvailableDates();
+            fetchAvailableModels();
         }
-    }, [isOpen, currentPage, selectedDate]);
+    }, [isOpen, currentPage, selectedDate, selectedModel]);
 
     const fetchLogs = async () => {
         setLoading(true);
         try {
-            const response = await fetch(`/api/dashboard/logs/?date=${selectedDate}&page=${currentPage}&per_page=${perPage}`);
+            const modelParam = selectedModel === 'all' ? '' : `&model=${selectedModel}`;
+            const response = await fetch(`/api/dashboard/logs/?date=${selectedDate}&page=${currentPage}&per_page=${perPage}${modelParam}`);
             if (response.ok) {
                 const data = await response.json();
                 setLogs(data.logs);
@@ -47,6 +51,18 @@ export default function Dashboard({ isOpen, onClose }) {
             }
         } catch (err) {
             console.error("Error fetching dates:", err);
+        }
+    };
+
+    const fetchAvailableModels = async () => {
+        try {
+            const response = await fetch("/api/dashboard/models/");
+            if (response.ok) {
+                const data = await response.json();
+                setAvailableModels(data.models);
+            }
+        } catch (err) {
+            console.error("Error fetching models:", err);
         }
     };
 
@@ -103,6 +119,11 @@ export default function Dashboard({ isOpen, onClose }) {
         setCurrentPage(1); // Reset to first page when date changes
     };
 
+    const handleModelChange = (e) => {
+        setSelectedModel(e.target.value);
+        setCurrentPage(1); // Reset to first page when model changes
+    };
+
     if (!isOpen) return null;
 
     return (
@@ -151,6 +172,23 @@ export default function Dashboard({ isOpen, onClose }) {
                                 </select>
                             </div>
                         )}
+
+                        {/* Model Filter */}
+                        <div className="flex items-center gap-2">
+                            <label className="text-green-300 text-sm">Model:</label>
+                            <select
+                                value={selectedModel}
+                                onChange={handleModelChange}
+                                className="bg-black border border-green-600 text-green-200 px-3 py-1 rounded text-sm focus:outline-none focus:border-green-400"
+                            >
+                                <option value="all">All Models</option>
+                                {availableModels.map(model => (
+                                    <option key={model} value={model}>
+                                        {model}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
 
                         {/* Total Count */}
                         <div className="ml-auto text-green-300 text-sm">
@@ -205,7 +243,7 @@ export default function Dashboard({ isOpen, onClose }) {
                                     {/* Info */}
                                     <div className="p-3">
                                         <div className="flex justify-between items-start mb-2">
-                                            <div>
+                                            <div className="flex-1">
                                                 <div className="text-green-300 font-bold text-sm">
                                                     {log.person}
                                                 </div>
@@ -213,6 +251,12 @@ export default function Dashboard({ isOpen, onClose }) {
                                                     {log.timestamp}
                                                 </div>
                                             </div>
+                                            {/* Model Badge */}
+                                            {log.model && log.model !== 'Unknown' && (
+                                                <div className="bg-blue-900 border border-blue-500 text-blue-200 text-xs px-2 py-1 rounded">
+                                                    {log.model}
+                                                </div>
+                                            )}
                                         </div>
 
                                         {/* Violations */}
@@ -231,6 +275,31 @@ export default function Dashboard({ isOpen, onClose }) {
                                                         </span>
                                                     ))}
                                                 </div>
+                                            </div>
+                                        )}
+
+                                        {/* License Plates */}
+                                        {log.model && log.model.toLowerCase().includes('vehicle') && (
+                                            <div className="mt-2">
+                                                <div className="text-yellow-400 text-xs font-semibold mb-1">
+                                                    License Plate:
+                                                </div>
+                                                {log.license_plates && log.license_plates.length > 0 ? (
+                                                    <div className="flex flex-wrap gap-1">
+                                                        {log.license_plates.map((plate, idx) => (
+                                                            <span
+                                                                key={idx}
+                                                                className="bg-yellow-900 border border-yellow-500 text-yellow-200 text-xs px-2 py-1 rounded font-mono"
+                                                            >
+                                                                {plate}
+                                                            </span>
+                                                        ))}
+                                                    </div>
+                                                ) : (
+                                                    <span className="text-gray-400 text-xs italic">
+                                                        NO LICENSE PLATE AVAILABLE
+                                                    </span>
+                                                )}
                                             </div>
                                         )}
                                     </div>
