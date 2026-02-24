@@ -3,7 +3,7 @@ import { XIcon, FileTextIcon, CalendarIcon } from "./Icons";
 
 export default function ReportGenerator({ isOpen, onClose }) {
     const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
-    const [selectedModel, setSelectedModel] = useState('all');
+    const [selectedModel, setSelectedModel] = useState('');
     const [availableDates, setAvailableDates] = useState([]);
     const [availableModels, setAvailableModels] = useState([]);
     const [loading, setLoading] = useState(false);
@@ -25,6 +25,10 @@ export default function ReportGenerator({ isOpen, onClose }) {
             if (response.ok) {
                 const data = await response.json();
                 setAvailableModels(data.models);
+                // Set first model as default if available
+                if (data.models.length > 0 && !selectedModel) {
+                    setSelectedModel(data.models[0]);
+                }
             }
         } catch (err) {
             console.error("Error fetching models:", err);
@@ -64,7 +68,7 @@ export default function ReportGenerator({ isOpen, onClose }) {
         setError(null);
 
         try {
-            const modelParam = selectedModel && selectedModel !== 'all' ? `?model=${encodeURIComponent(selectedModel)}` : '';
+            const modelParam = (selectedModel && selectedModel !== 'all' && selectedModel !== '') ? `?model=${encodeURIComponent(selectedModel)}` : '';
             const response = await fetch(`/api/dashboard/report/${selectedDate}${modelParam}`);
             
             if (!response.ok) {
@@ -131,7 +135,7 @@ export default function ReportGenerator({ isOpen, onClose }) {
                 },
                 body: JSON.stringify({ 
                     date: selectedDate,
-                    model: selectedModel && selectedModel !== 'all' ? selectedModel : null
+                    model: (selectedModel && selectedModel !== 'all' && selectedModel !== '') ? selectedModel : null
                 })
             });
 
@@ -232,7 +236,6 @@ export default function ReportGenerator({ isOpen, onClose }) {
                             onChange={handleModelChange}
                             className="w-full bg-black border border-green-600 text-green-200 px-3 py-2 rounded focus:outline-none focus:border-green-400"
                         >
-                            <option value="all">All Models</option>
                             {availableModels.map(model => (
                                 <option key={model} value={model}>
                                     {model}
@@ -264,7 +267,7 @@ export default function ReportGenerator({ isOpen, onClose }) {
                             <li>• License plates (for Vehicle Helmet model)</li>
                             <li>• Reference image filename</li>
                         </ul>
-                        {selectedModel !== 'all' && (
+                        {selectedModel && (
                             <div className="mt-2 pt-2 border-t border-green-700">
                                 <p className="text-yellow-400 text-xs">
                                     ⚠️ Filtering by: <span className="font-semibold">{selectedModel}</span>

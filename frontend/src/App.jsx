@@ -12,6 +12,7 @@ import CompliancePanel from './components/CompliancePanel';
 import DeviceStatus from './components/DeviceStatus';
 import Dashboard from './components/Dashboard';
 import ReportGenerator from './components/ReportGenerator';
+import WhatsAppAlert from './components/WhatsAppAlert';
 import Notification from './components/Notification';
 import { logComplianceResults } from './utils/complianceLogger';
 
@@ -37,6 +38,7 @@ function App() {
   // Dashboard state
   const [isDashboardOpen, setIsDashboardOpen] = useState(false);
   const [isReportGeneratorOpen, setIsReportGeneratorOpen] = useState(false);
+  const [isWhatsAppAlertOpen, setIsWhatsAppAlertOpen] = useState(false);
   
   // Notification state
   const [notification, setNotification] = useState(null);
@@ -621,6 +623,7 @@ const stopIPCamera = () => {
         <ActionsPanel 
           onOpenDashboard={() => setIsDashboardOpen(true)}
           onOpenReportGenerator={() => setIsReportGeneratorOpen(true)}
+          onOpenWhatsAppAlert={() => setIsWhatsAppAlertOpen(true)}
           canLogImage={canLogImage}
           isLoggingImage={isLoggingImage}
           onLogImageResult={handleLogImageResult}
@@ -645,6 +648,12 @@ const stopIPCamera = () => {
         <ReportGenerator 
           isOpen={isReportGeneratorOpen} 
           onClose={() => setIsReportGeneratorOpen(false)} 
+        />
+
+        {/* === WhatsApp Alert Modal === */}
+        <WhatsAppAlert 
+          isOpen={isWhatsAppAlertOpen} 
+          onClose={() => setIsWhatsAppAlertOpen(false)} 
         />
 
         {/* === Notification === */}

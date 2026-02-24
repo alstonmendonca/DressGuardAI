@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { XIcon, TrashIcon, ChevronLeftIcon, ChevronRightIcon, CalendarIcon } from "./Icons";
+import { XIcon, TrashIcon, ChevronLeftIcon, ChevronRightIcon, CalendarIcon, RefreshIcon } from "./Icons";
 
 export default function Dashboard({ isOpen, onClose }) {
     const [logs, setLogs] = useState([]);
@@ -189,6 +189,19 @@ export default function Dashboard({ isOpen, onClose }) {
                                 ))}
                             </select>
                         </div>
+
+                        {/* Manual Refresh Button */}
+                        <button
+                            onClick={() => {
+                                fetchLogs();
+                                fetchAvailableDates();
+                            }}
+                            className="bg-green-900 border border-green-600 text-green-200 px-3 py-1 rounded text-sm hover:bg-green-800 transition flex items-center gap-2"
+                            title="Refresh logs"
+                        >
+                            <RefreshIcon className="w-4 h-4" />
+                            Refresh
+                        </button>
 
                         {/* Total Count */}
                         <div className="ml-auto text-green-300 text-sm">

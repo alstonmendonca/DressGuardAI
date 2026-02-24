@@ -4,6 +4,7 @@ import { SaveIcon, AlertIcon, DashboardIcon, FileTextIcon } from "./Icons";
 export default function ActionsPanel({ 
     onOpenDashboard, 
     onOpenReportGenerator,
+    onOpenWhatsAppAlert,
     canLogImage = false,
     isLoggingImage = false,
     onLogImageResult
@@ -94,45 +95,10 @@ export default function ActionsPanel({
         }
     };
 
-    const handleSendAlerts = async () => {
-        setAlertLoading(true);
-        try {
-            // Get today's date
-            const today = new Date().toISOString().split('T')[0];
-
-            // Send WhatsApp notification
-            const response = await fetch("/dashboard/send-whatsapp/", {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                },
-                body: JSON.stringify({ date: today })
-            });
-
-            // Check if response is ok before parsing JSON
-            if (!response.ok) {
-                let errorMessage = 'Failed to send WhatsApp alerts';
-                try {
-                    const data = await response.json();
-                    errorMessage = data.detail || errorMessage;
-                } catch (jsonError) {
-                    // If JSON parsing fails, use status text
-                    errorMessage = `Server error: ${response.status} ${response.statusText}`;
-                }
-                throw new Error(errorMessage);
-            }
-
-            const data = await response.json();
-
-            // Show success message
-            const successMsg = `✓ Alerts sent successfully via WhatsApp!\n\nDate: ${data.date}\nViolations: ${data.violation_count}\nRecipients: ${data.successful_sends}/${data.total_recipients}`;
-            alert(successMsg);
-
-        } catch (err) {
-            console.error("Error sending alerts:", err);
-            alert(`Failed to send alerts: ${err.message}`);
-        } finally {
-            setAlertLoading(false);
+    const handleSendAlerts = () => {
+        // Open WhatsApp alert modal instead of directly sending
+        if (onOpenWhatsAppAlert) {
+            onOpenWhatsAppAlert();
         }
     };
 
@@ -194,14 +160,11 @@ export default function ActionsPanel({
           
           <button 
             onClick={handleSendAlerts}
-            disabled={alertLoading}
-            className={`border py-1 sm:py-2 transition text-xs sm:text-sm font-semibold flex items-center justify-center gap-2 bg-green-900 border-green-600 text-green-200 hover:bg-green-800 hover:opacity-80 ${
-                alertLoading ? 'opacity-50 cursor-not-allowed' : ''
-            }`}
+            className="border py-1 sm:py-2 transition text-xs sm:text-sm font-semibold flex items-center justify-center gap-2 bg-green-900 border-green-600 text-green-200 hover:bg-green-800 hover:opacity-80"
             title="Send violation alerts via WhatsApp"
           >
             <AlertIcon className="w-4 h-4" />
-            {alertLoading ? 'Sending...' : 'Send Alerts'}
+            Send Alerts
           </button>
           
           <button 

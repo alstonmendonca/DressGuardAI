@@ -39,7 +39,7 @@ MIN_FACE_SIZE = 40  # Minimum face size to detect
 face_app = None
 
 def get_face_app():
-    """Lazy load InsightFace model"""
+    """Lazy load InsightFace model - tries GPU first, falls back to CPU if needed"""
     global face_app
     
     if not INSIGHTFACE_AVAILABLE:
@@ -48,22 +48,30 @@ def get_face_app():
     
     if face_app is None:
         try:
-            # Try GPU first, fallback to CPU
+            # Try GPU first (CUDA)
             try:
-                face_app = FaceAnalysis(
-                    name='buffalo_s',  # Lightweight model with MobileFaceNet
-                    providers=['CUDAExecutionProvider', 'CPUExecutionProvider']
-                )
-                face_app.prepare(ctx_id=0, det_size=(640, 640))
-                logger.info("InsightFace initialized with buffalo_s (GPU mode)")
-            except:
-                # Fallback to CPU only
+                import onnxruntime as ort
+                available_providers = ort.get_available_providers()
+                
+                if 'CUDAExecutionProvider' in available_providers:
+                    face_app = FaceAnalysis(
+                        name='buffalo_s',  # Lightweight model with MobileFaceNet
+                        providers=['CUDAExecutionProvider']
+                    )
+                    face_app.prepare(ctx_id=0, det_size=(640, 640))
+                    logger.info("✅ InsightFace initialized with buffalo_s (GPU/CUDA mode)")
+                else:
+                    raise RuntimeError("CUDA provider not available")
+            except Exception as gpu_error:
+                # Fallback to CPU
+                logger.warning(f"GPU initialization failed: {gpu_error}")
+                logger.warning("Falling back to CPU mode for InsightFace (YOLO still uses GPU)")
                 face_app = FaceAnalysis(
                     name='buffalo_s',
                     providers=['CPUExecutionProvider']
                 )
                 face_app.prepare(ctx_id=-1, det_size=(640, 640))
-                logger.info("InsightFace initialized with buffalo_s (CPU mode)")
+                logger.info("✅ InsightFace initialized with buffalo_s (CPU mode - YOLO uses GPU)")
         except Exception as e:
             logger.error(f"Failed to initialize InsightFace: {e}")
             return None

@@ -1329,6 +1329,270 @@ async def get_available_models():
         logger.error(f"Error getting available models: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+def _generate_excel_report(date: str, model: Optional[str] = None, save_to_file: bool = False):
+    """
+    Internal function to generate Excel report
+    
+    Args:
+        date: Date in YYYY-MM-DD format
+        model: Optional model name to filter by
+        save_to_file: If True, saves to file and returns path. If False, returns BytesIO buffer
+        
+    Returns:
+        Tuple of (workbook_buffer_or_path, violation_count)
+    """
+    import json
+    from io import BytesIO
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.drawing.image import Image as XLImage
+    from PIL import Image as PILImage
+    
+    # Load student database
+    students_file = "students.json"
+    students_db = {}
+    if os.path.exists(students_file):
+        try:
+            with open(students_file, 'r') as f:
+                students_db = json.load(f)
+        except Exception as e:
+            logger.error(f"Error loading students.json: {e}")
+    
+    # Get logs for this date
+    log_folder = violation_logger.log_folder
+    if not os.path.exists(log_folder):
+        raise HTTPException(status_code=404, detail="No logs found")
+    
+    # Filter files by date
+    target_date_prefix = date.replace("-", "")
+    violations = []
+    
+    for filename in os.listdir(log_folder):
+        if filename.startswith("violation_") and filename.endswith('.jpg'):
+            try:
+                file_date = filename.split("_")[1]
+                if file_date == target_date_prefix:
+                    # Extract timestamp
+                    time_part = filename.split("_")[2]
+                    timestamp = f"{file_date[:4]}-{file_date[4:6]}-{file_date[6:8]} {time_part[:2]}:{time_part[2:4]}:{time_part[4:6]}"
+                    
+                    # Find person and violations from daily logs
+                    filepath = os.path.join(log_folder, filename)
+                    filepath_normalized = os.path.normpath(filepath)
+                    person_name = "Unknown"
+                    items = []
+                    license_plates = []
+                    model_name = "Unknown"
+                    
+                    # logged_today uses filepath as key in new format
+                    if filepath_normalized in violation_logger.logged_today:
+                        log_info = violation_logger.logged_today[filepath_normalized]
+                        person_name = log_info.get("person", "Unknown")
+                        items = log_info.get("items", [])
+                        license_plates = log_info.get("license_plates", [])
+                        model_name = log_info.get("model", "Unknown")
+                    else:
+                        # Fallback: search through all entries for matching filepath
+                        for key, log_info in violation_logger.logged_today.items():
+                            if not isinstance(log_info, dict):
+                                continue
+                            logged_filepath = os.path.normpath(log_info.get("filepath", key))
+                            if logged_filepath == filepath_normalized:
+                                person_name = log_info.get("person", "Unknown")
+                                items = log_info.get("items", [])
+                                license_plates = log_info.get("license_plates", [])
+                                model_name = log_info.get("model", "Unknown")
+                                break
+                    
+                    # Apply model filter if specified
+                    if model and model.lower() != 'all' and model_name.lower() != model.lower():
+                        continue
+                    
+                    # Get student details
+                    student_info = students_db.get(person_name, {})
+                    
+                    violations.append({
+                        'person': person_name,
+                        'full_name': student_info.get('full_name', person_name),
+                        'usn': student_info.get('usn', 'N/A'),
+                        'department': student_info.get('department', 'N/A'),
+                        'branch': student_info.get('branch', 'N/A'),
+                        'email': student_info.get('email', 'N/A'),
+                        'timestamp': timestamp,
+                        'violations': ', '.join(items) if items else 'N/A',
+                        'license_plates': ', '.join(license_plates) if license_plates else 'N/A',
+                        'model': model_name,
+                        'image': filename
+                    })
+            except Exception as e:
+                logger.error(f"Error processing file {filename}: {e}", exc_info=True)
+                continue
+    
+    model_filter_msg = f" for model '{model}'" if model and model.lower() != 'all' else ""
+    if not violations:
+        raise HTTPException(status_code=404, detail=f"No violations found for {date}{model_filter_msg}")
+    
+    # Sort by timestamp
+    violations.sort(key=lambda x: x['timestamp'])
+    
+    # Create Excel workbook
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Non-Compliance Report"
+    
+    # Define styles
+    header_font = Font(bold=True, color="FFFFFF", size=12)
+    header_fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
+    header_alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    cell_alignment = Alignment(horizontal="left", vertical="top", wrap_text=True)
+    border = Border(
+        left=Side(style='thin'),
+        right=Side(style='thin'),
+        top=Side(style='thin'),
+        bottom=Side(style='thin')
+    )
+    
+    # Add title
+    ws.merge_cells('A1:K1')
+    title_cell = ws['A1']
+    model_suffix = f" - {model}" if model and model.lower() != 'all' else " - All Models"
+    title_cell.value = f"DressGuard Non-Compliance Report - {date}{model_suffix}"
+    title_cell.font = Font(bold=True, size=16)
+    title_cell.alignment = Alignment(horizontal="center", vertical="center")
+    title_cell.fill = PatternFill(start_color="D9E1F2", end_color="D9E1F2", fill_type="solid")
+    ws.row_dimensions[1].height = 30
+    
+    # Add headers
+    headers = ['#', 'Full Name', 'USN', 'Department', 'Branch', 'Email', 'Timestamp', 'Violations', 'License Plates', 'Model', 'Image']
+    for col_num, header in enumerate(headers, 1):
+        cell = ws.cell(row=2, column=col_num)
+        cell.value = header
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = header_alignment
+        cell.border = border
+    
+    ws.row_dimensions[2].height = 25
+    
+    # Set column widths
+    ws.column_dimensions['A'].width = 5
+    ws.column_dimensions['B'].width = 25
+    ws.column_dimensions['C'].width = 15
+    ws.column_dimensions['D'].width = 15
+    ws.column_dimensions['E'].width = 10
+    ws.column_dimensions['F'].width = 30
+    ws.column_dimensions['G'].width = 20
+    ws.column_dimensions['H'].width = 30
+    ws.column_dimensions['I'].width = 20
+    ws.column_dimensions['J'].width = 20
+    ws.column_dimensions['K'].width = 35  # Wider for images
+    
+    # Add data rows with embedded images
+    for idx, violation in enumerate(violations, 1):
+        row_num = idx + 2
+        row_data = [
+            idx,
+            violation['full_name'],
+            violation['usn'],
+            violation['department'],
+            violation['branch'],
+            violation['email'],
+            violation['timestamp'],
+            violation['violations'],
+            violation['license_plates'],
+            violation['model']
+        ]
+        
+        # Add text data
+        for col_num, value in enumerate(row_data, 1):
+            cell = ws.cell(row=row_num, column=col_num)
+            cell.value = value
+            cell.alignment = cell_alignment
+            cell.border = border
+        
+        # Add embedded image in column K (11)
+        try:
+            image_path = os.path.join(log_folder, violation['image'])
+            if os.path.exists(image_path):
+                # Open and resize image for WhatsApp compatibility with good quality
+                pil_img = PILImage.open(image_path)
+                orig_width, orig_height = pil_img.size
+                
+                # Balanced dimensions - clear but not too large
+                target_width = 150
+                aspect_ratio = orig_height / orig_width
+                target_height = int(target_width * aspect_ratio)
+                
+                # Limit height to max 115 pixels
+                max_height = 115
+                if target_height > max_height:
+                    target_height = max_height
+                    target_width = int(max_height / aspect_ratio)
+                
+                # Resize image with high-quality downsampling
+                resized_img = pil_img.resize((target_width, target_height), PILImage.Resampling.LANCZOS)
+                
+                # Convert to RGB if needed (removes alpha channel)
+                if resized_img.mode in ('RGBA', 'LA', 'P'):
+                    rgb_img = PILImage.new('RGB', resized_img.size, (255, 255, 255))
+                    if resized_img.mode == 'P':
+                        resized_img = resized_img.convert('RGBA')
+                    rgb_img.paste(resized_img, mask=resized_img.split()[-1] if resized_img.mode == 'RGBA' else None)
+                    resized_img = rgb_img
+                
+                # Save to temporary buffer with JPEG compression - higher quality
+                temp_buffer = BytesIO()
+                resized_img.save(temp_buffer, format='JPEG', quality=85, optimize=True)
+                temp_buffer.seek(0)
+                
+                # Create Excel image from buffer
+                img = XLImage(temp_buffer)
+                img.width = target_width
+                img.height = target_height
+                
+                # Position image in cell K (column 11)
+                img.anchor = f'K{row_num}'
+                ws.add_image(img)
+                
+                # Set row height to accommodate image (convert pixels to points: pixels * 0.75 + padding)
+                ws.row_dimensions[row_num].height = target_height * 0.75 + 5
+            else:
+                # If image doesn't exist, just show filename
+                cell = ws.cell(row=row_num, column=11)
+                cell.value = violation['image']
+                cell.alignment = cell_alignment
+                cell.border = border
+                ws.row_dimensions[row_num].height = 20
+        except Exception as e:
+            logger.error(f"Error embedding image {violation['image']}: {e}", exc_info=True)
+            # Fallback to filename if image embedding fails
+            cell = ws.cell(row=row_num, column=11)
+            cell.value = violation['image']
+            cell.alignment = cell_alignment
+            cell.border = border
+            ws.row_dimensions[row_num].height = 20
+    
+    # Add summary at bottom
+    summary_row = len(violations) + 4
+    ws.merge_cells(f'A{summary_row}:C{summary_row}')
+    summary_cell = ws[f'A{summary_row}']
+    summary_cell.value = f"Total Violations: {len(violations)}"
+    summary_cell.font = Font(bold=True, size=12)
+    summary_cell.fill = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
+    
+    # Save to file or return buffer
+    if save_to_file:
+        report_filename = f"DressGuard_Report_{date.replace('-', '')}.xlsx"
+        report_path = os.path.join("non_compliance_logs", report_filename)
+        os.makedirs("non_compliance_logs", exist_ok=True)
+        wb.save(report_path)
+        return report_path, len(violations)
+    else:
+        excel_buffer = BytesIO()
+        wb.save(excel_buffer)
+        excel_buffer.seek(0)
+        return excel_buffer, len(violations)
+
 @app.get("/dashboard/report/{date}")
 async def generate_report(date: str, model: Optional[str] = None):
     """
@@ -1342,182 +1606,20 @@ async def generate_report(date: str, model: Optional[str] = None):
         Excel file download with violation details
     """
     try:
-        import json
-        from io import BytesIO
         from fastapi.responses import StreamingResponse
         
         try:
             from openpyxl import Workbook
             from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+            from openpyxl.drawing.image import Image as XLImage
         except ImportError:
             raise HTTPException(
                 status_code=500, 
                 detail="openpyxl not installed. Run: pip install openpyxl"
             )
         
-        # Load student database
-        students_file = "students.json"
-        students_db = {}
-        if os.path.exists(students_file):
-            try:
-                with open(students_file, 'r') as f:
-                    students_db = json.load(f)
-            except Exception as e:
-                logger.error(f"Error loading students.json: {e}")
-        
-        # Get logs for this date
-        log_folder = violation_logger.log_folder
-        if not os.path.exists(log_folder):
-            raise HTTPException(status_code=404, detail="No logs found")
-        
-        # Filter files by date
-        target_date_prefix = date.replace("-", "")
-        violations = []
-        
-        for filename in os.listdir(log_folder):
-            if filename.startswith("violation_") and filename.endswith('.jpg'):
-                try:
-                    file_date = filename.split("_")[1]
-                    if file_date == target_date_prefix:
-                        # Extract timestamp
-                        time_part = filename.split("_")[2]
-                        timestamp = f"{file_date[:4]}-{file_date[4:6]}-{file_date[6:8]} {time_part[:2]}:{time_part[2:4]}:{time_part[4:6]}"
-                        
-                        # Find person and violations from daily logs
-                        filepath = os.path.join(log_folder, filename)
-                        filepath_normalized = os.path.normpath(filepath)
-                        person_name = "Unknown"
-                        items = []
-                        license_plates = []
-                        model_name = "Unknown"
-                        
-                        for person, log_info in violation_logger.logged_today.items():
-                            logged_filepath = os.path.normpath(log_info.get("filepath", ""))
-                            if logged_filepath == filepath_normalized:
-                                person_name = person
-                                items = log_info.get("items", [])
-                                license_plates = log_info.get("license_plates", [])
-                                model_name = log_info.get("model", "Unknown")
-                                break
-                        
-                        # Apply model filter if specified
-                        if model and model.lower() != 'all' and model_name.lower() != model.lower():
-                            continue
-                        
-                        # Get student details
-                        student_info = students_db.get(person_name, {})
-                        
-                        violations.append({
-                            'person': person_name,
-                            'full_name': student_info.get('full_name', person_name),
-                            'usn': student_info.get('usn', 'N/A'),
-                            'department': student_info.get('department', 'N/A'),
-                            'branch': student_info.get('branch', 'N/A'),
-                            'email': student_info.get('email', 'N/A'),
-                            'timestamp': timestamp,
-                            'violations': ', '.join(items) if items else 'N/A',
-                            'license_plates': ', '.join(license_plates) if license_plates else 'N/A',
-                            'image': filename
-                        })
-                except Exception as e:
-                    logger.error(f"Error processing file {filename}: {e}")
-                    continue
-        
-        if not violations:
-            raise HTTPException(status_code=404, detail=f"No violations found for {date}")
-        
-        # Sort by timestamp
-        violations.sort(key=lambda x: x['timestamp'])
-        
-        # Create Excel workbook
-        wb = Workbook()
-        ws = wb.active
-        ws.title = "Non-Compliance Report"
-        
-        # Define styles
-        header_font = Font(bold=True, color="FFFFFF", size=12)
-        header_fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
-        header_alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-        
-        cell_alignment = Alignment(horizontal="left", vertical="top", wrap_text=True)
-        border = Border(
-            left=Side(style='thin'),
-            right=Side(style='thin'),
-            top=Side(style='thin'),
-            bottom=Side(style='thin')
-        )
-        
-        # Add title
-        ws.merge_cells('A1:K1')
-        title_cell = ws['A1']
-        model_suffix = f" - {model}" if model and model.lower() != 'all' else " - All Models"
-        title_cell.value = f"DressGuard Non-Compliance Report - {date}{model_suffix}"
-        title_cell.font = Font(bold=True, size=16)
-        title_cell.alignment = Alignment(horizontal="center", vertical="center")
-        title_cell.fill = PatternFill(start_color="D9E1F2", end_color="D9E1F2", fill_type="solid")
-        ws.row_dimensions[1].height = 30
-        
-        # Add headers
-        headers = ['#', 'Full Name', 'USN', 'Department', 'Branch', 'Email', 'Timestamp', 'Violations', 'License Plates', 'Model', 'Image File']
-        for col_num, header in enumerate(headers, 1):
-            cell = ws.cell(row=2, column=col_num)
-            cell.value = header
-            cell.font = header_font
-            cell.fill = header_fill
-            cell.alignment = header_alignment
-            cell.border = border
-        
-        ws.row_dimensions[2].height = 25
-        
-        # Set column widths
-        ws.column_dimensions['A'].width = 5
-        ws.column_dimensions['B'].width = 25
-        ws.column_dimensions['C'].width = 15
-        ws.column_dimensions['D'].width = 15
-        ws.column_dimensions['E'].width = 10
-        ws.column_dimensions['F'].width = 30
-        ws.column_dimensions['G'].width = 20
-        ws.column_dimensions['H'].width = 30
-        ws.column_dimensions['I'].width = 20
-        ws.column_dimensions['J'].width = 30
-        
-        # Add data rows
-        for idx, violation in enumerate(violations, 1):
-            row_num = idx + 2
-            row_data = [
-                idx,
-                violation['full_name'],
-                violation['usn'],
-                violation['department'],
-                violation['branch'],
-                violation['email'],
-                violation['timestamp'],
-                violation['violations'],
-                violation['license_plates'],
-                violation['model'],
-                violation['image']
-            ]
-            
-            for col_num, value in enumerate(row_data, 1):
-                cell = ws.cell(row=row_num, column=col_num)
-                cell.value = value
-                cell.alignment = cell_alignment
-                cell.border = border
-            
-            ws.row_dimensions[row_num].height = 20
-        
-        # Add summary at bottom
-        summary_row = len(violations) + 4
-        ws.merge_cells(f'A{summary_row}:C{summary_row}')
-        summary_cell = ws[f'A{summary_row}']
-        summary_cell.value = f"Total Violations: {len(violations)}"
-        summary_cell.font = Font(bold=True, size=12)
-        summary_cell.fill = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
-        
-        # Generate Excel file in memory
-        excel_buffer = BytesIO()
-        wb.save(excel_buffer)
-        excel_buffer.seek(0)
+        # Use shared report generation function
+        excel_buffer, violation_count = _generate_excel_report(date, model, save_to_file=False)
         
         # Generate filename
         safe_date = date.replace("-", "")
@@ -1539,13 +1641,14 @@ async def generate_report(date: str, model: Optional[str] = None):
 
 @app.get("/dashboard/whatsapp/status/")
 async def get_whatsapp_status():
-    """Check if WhatsApp integration is enabled and configured"""
+    """Check if WhatsApp Web integration is enabled and configured"""
     try:
         import config
+        is_enabled = whatsapp_sender.is_enabled()
+        # WhatsApp Web doesn't need Twilio - just check if service is running
         return {
-            "enabled": whatsapp_sender.is_enabled(),
-            "configured": bool(getattr(config, 'TWILIO_ACCOUNT_SID', None) and 
-                             getattr(config, 'TWILIO_AUTH_TOKEN', None)),
+            "enabled": is_enabled,
+            "configured": is_enabled,  # If enabled, it's configured (WhatsApp Web connected)
             "recipients": getattr(config, 'WHATSAPP_RECIPIENTS', [])
         }
     except Exception as e:
@@ -1567,15 +1670,12 @@ async def send_report_to_whatsapp(date: str = Body(...),
         date: Report date in YYYY-MM-DD format
         model: Optional model name to filter by
         recipients: Optional list of recipient phone numbers (uses config default if not provided)
-    \n    Returns:
+    
+    Returns:
         Status of WhatsApp message sending
     """
     try:
         import config
-        import json
-        from io import BytesIO
-        from openpyxl import Workbook
-        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
         
         # Check if WhatsApp is enabled
         if not whatsapp_sender.is_enabled():
@@ -1596,169 +1696,17 @@ async def send_report_to_whatsapp(date: str = Body(...),
         
         logger.info(f"Generating report for {date}...")
         
-        # === STEP 1: Generate Excel Report (using existing logic) ===
-        
-        # Load student database
-        students_file = "students.json"
-        students_db = {}
-        if os.path.exists(students_file):
-            try:
-                with open(students_file, 'r') as f:
-                    students_db = json.load(f)
-            except Exception as e:
-                logger.error(f"Error loading students.json: {e}")
-        
-        # Get logs for this date
-        log_folder = violation_logger.log_folder
-        if not os.path.exists(log_folder):
-            raise HTTPException(status_code=404, detail="No logs found")
-        
-        # Filter files by date
-        target_date_prefix = date.replace("-", "")
-        violations = []
-        
-        for filename in os.listdir(log_folder):
-            if filename.startswith("violation_") and filename.endswith('.jpg'):
-                try:
-                    file_date = filename.split("_")[1]
-                    if file_date == target_date_prefix:
-                        time_part = filename.split("_")[2]
-                        timestamp = f"{file_date[:4]}-{file_date[4:6]}-{file_date[6:8]} {time_part[:2]}:{time_part[2:4]}:{time_part[4:6]}"
-                        
-                        filepath = os.path.join(log_folder, filename)
-                        filepath_normalized = os.path.normpath(filepath)
-                        person_name = "Unknown"
-                        items = []
-                        license_plates = []
-                        model_name = "Unknown"
-                        
-                        for person, log_info in violation_logger.logged_today.items():
-                            logged_filepath = os.path.normpath(log_info.get("filepath", ""))
-                            if logged_filepath == filepath_normalized:
-                                person_name = person
-                                items = log_info.get("items", [])
-                                license_plates = log_info.get("license_plates", [])
-                                model_name = log_info.get("model", "Unknown")
-                                break
-                        
-                        # Apply model filter if specified
-                        if model and model.lower() != 'all' and model_name.lower() != model.lower():
-                            continue
-                        
-                        student_info = students_db.get(person_name, {})
-                        
-                        violations.append({
-                            'person': person_name,
-                            'full_name': student_info.get('full_name', person_name),
-                            'usn': student_info.get('usn', 'N/A'),
-                            'department': student_info.get('department', 'N/A'),
-                            'branch': student_info.get('branch', 'N/A'),
-                            'email': student_info.get('email', 'N/A'),
-                            'timestamp': timestamp,
-                            'violations': ', '.join(items) if items else 'N/A',
-                            'license_plates': ', '.join(license_plates) if license_plates else 'N/A',
-                            'model': model_name,
-                            'image': filename
-                        })
-                except Exception as e:
-                    logger.error(f"Error processing file {filename}: {e}")
-                    continue
-        
-        model_filter_msg = f" for model '{model}'" if model and model.lower() != 'all' else ""
-        if not violations:
-            raise HTTPException(status_code=404, detail=f"No violations found for {date}{model_filter_msg}")
-        
-        violations.sort(key=lambda x: x['timestamp'])
-        
-        # Create Excel workbook
-        wb = Workbook()
-        ws = wb.active
-        ws.title = "Non-Compliance Report"
-        
-        # Styles
-        header_font = Font(bold=True, color="FFFFFF", size=12)
-        header_fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
-        header_alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-        cell_alignment = Alignment(horizontal="left", vertical="top", wrap_text=True)
-        border = Border(
-            left=Side(style='thin'), right=Side(style='thin'),
-            top=Side(style='thin'), bottom=Side(style='thin')
-        )
-        
-        # Title
-        ws.merge_cells('A1:K1')
-        title_cell = ws['A1']
-        model_suffix = f" - {model}" if model and model.lower() != 'all' else " - All Models"
-        title_cell.value = f"DressGuard Non-Compliance Report - {date}{model_suffix}"
-        title_cell.font = Font(bold=True, size=16)
-        title_cell.alignment = Alignment(horizontal="center", vertical="center")
-        title_cell.fill = PatternFill(start_color="D9E1F2", end_color="D9E1F2", fill_type="solid")
-        ws.row_dimensions[1].height = 30
-        
-        # Headers
-        headers = ['#', 'Full Name', 'USN', 'Department', 'Branch', 'Email', 'Timestamp', 'Violations', 'License Plates', 'Model', 'Image File']
-        for col_num, header in enumerate(headers, 1):
-            cell = ws.cell(row=2, column=col_num)
-            cell.value = header
-            cell.font = header_font
-            cell.fill = header_fill
-            cell.alignment = header_alignment
-            cell.border = border
-        
-        ws.row_dimensions[2].height = 25
-        ws.column_dimensions['A'].width = 5
-        ws.column_dimensions['B'].width = 25
-        ws.column_dimensions['C'].width = 15
-        ws.column_dimensions['D'].width = 15
-        ws.column_dimensions['E'].width = 10
-        ws.column_dimensions['F'].width = 30
-        ws.column_dimensions['G'].width = 20
-        ws.column_dimensions['H'].width = 30
-        ws.column_dimensions['I'].width = 20
-        ws.column_dimensions['J'].width = 20
-        ws.column_dimensions['K'].width = 30
-        
-        # Data rows
-        for idx, violation in enumerate(violations, 1):
-            row_num = idx + 2
-            row_data = [
-                idx, violation['full_name'], violation['usn'], violation['department'],
-                violation['branch'], violation['email'], violation['timestamp'],
-                violation['violations'], violation['license_plates'], violation['model'], violation['image']
-            ]
-            for col_num, value in enumerate(row_data, 1):
-                cell = ws.cell(row=row_num, column=col_num)
-                cell.value = value
-                cell.alignment = cell_alignment
-                cell.border = border
-            ws.row_dimensions[row_num].height = 20
-        
-        # Summary
-        summary_row = len(violations) + 4
-        ws.merge_cells(f'A{summary_row}:C{summary_row}')
-        summary_cell = ws[f'A{summary_row}']
-        summary_cell.value = f"Total Violations: {len(violations)}"
-        summary_cell.font = Font(bold=True, size=12)
-        summary_cell.fill = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
-        
-        # Save to file
-        report_filename = f"DressGuard_Report_{date.replace('-', '')}.xlsx"
-        report_path = os.path.join("non_compliance_logs", report_filename)
-        
-        # Ensure directory exists
-        os.makedirs("non_compliance_logs", exist_ok=True)
-        
-        wb.save(report_path)
+        # Use shared report generation function (save to file for WhatsApp)
+        report_path, violation_count = _generate_excel_report(date, model, save_to_file=True)
         logger.info(f"Report generated: {report_path}")
         
-        # === STEP 2: Send via WhatsApp with attachment ===
-        
+        # Send via WhatsApp with attachment
         results = []
         for recipient in recipients:
             result = whatsapp_sender.send_report_with_file(
                 to_number=recipient,
                 date=date,
-                total_violations=len(violations),
+                total_violations=violation_count,
                 report_path=report_path
             )
             results.append({
@@ -1773,7 +1721,7 @@ async def send_report_to_whatsapp(date: str = Body(...),
         return {
             "success": success_count > 0,
             "date": date,
-            "violation_count": len(violations),
+            "violation_count": violation_count,
             "total_recipients": len(recipients),
             "successful_sends": success_count,
             "report_generated": True,
